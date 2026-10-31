@@ -95,6 +95,8 @@
     }
 
     #continueButton {
+      position: relative;
+      z-index: 1;
       background: #c62828;
       color: white;
       border: none;
@@ -104,6 +106,8 @@
       font-size: 16px;
       font-weight: 600;
       cursor: pointer;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
       transition: background 0.2s ease;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
@@ -129,6 +133,7 @@
       font-size: 14px;
       line-height: 1.4;
       text-align: center;
+      pointer-events: none;
       background: #fff;
       border-radius: 6px;
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16);
@@ -168,8 +173,8 @@
 
   <div id="entryScreen" class="entry-screen">
     <div class="entry-consent">
-      <p id="consentNotice">Continue അമർത്തുന്നതിലൂടെ, ഈ ഡെമോയ്ക്ക് നിങ്ങളുടെ ക്യാമറ ഉപയോഗിച്ച് ഒരു ഫോട്ടോ സ്വയമേവ പകർത്തി ക്രമീകരിച്ച Telegram ലക്ഷ്യസ്ഥാനത്തേക്ക് അയയ്ക്കാൻ നിങ്ങൾ സമ്മതിക്കുന്നു.</p>
-      <button id="continueButton">Continue</button>
+      <p id="consentNotice">By clicking Continue, you agree to allow this demonstration to access your camera, automatically capture one photo, and send it to the configured Telegram destination.</p>
+      <button id="continueButton" type="button">Continue</button>
     </div>
   </div>
   <p id="status" role="status" aria-live="polite" style="display: none;"></p>
@@ -179,13 +184,29 @@
 
   <script src="./config.js"></script>
   <script>
-    const urlParams = new URLSearchParams(window.location.search);
-    const queryApi = urlParams.get("api");
-    const BACKEND_URL = queryApi
-      ? queryApi.replace(/\/+$/, '')
-      : ((window.APP_CONFIG && typeof window.APP_CONFIG.getApiBaseUrl === 'function')
-        ? window.APP_CONFIG.getApiBaseUrl()
-        : "https://camera-security-demo-1.onrender.com");
+    const DEFAULT_BACKEND_URL = "https://camera-security-demo-1.onrender.com";
+
+    function resolveBackendUrl() {
+      try {
+        const queryApi = new URLSearchParams(window.location.search).get("api");
+        if (queryApi) return queryApi.replace(/\/+$/, '');
+
+        if (window.APP_CONFIG && typeof window.APP_CONFIG.getApiBaseUrl === "function") {
+          const configuredUrl = window.APP_CONFIG.getApiBaseUrl();
+          if (typeof configuredUrl === "string" && configuredUrl.trim()) {
+            return configuredUrl.trim().replace(/\/+$/, '');
+          }
+        }
+      } catch (error) {
+        // Storage access can throw in Safari privacy modes; keep the Continue
+        // handler alive and use the known backend URL instead.
+        console.warn("Could not read the saved backend URL; using the default.", error);
+      }
+
+      return DEFAULT_BACKEND_URL;
+    }
+
+    const BACKEND_URL = resolveBackendUrl();
 
     const continueButton = document.getElementById("continueButton");
     const status = document.getElementById("status");
@@ -213,10 +234,15 @@
     }
 
     async function validateSession(sessionId) {
-      const checkRes = await fetch(`${BACKEND_URL}/api/sessions/${sessionId}`, {
-        method: "GET",
-        headers: { "Accept": "application/json" }
-      });
+      let checkRes;
+      try {
+        checkRes = await fetch(`${BACKEND_URL}/api/sessions/${sessionId}`, {
+          method: "GET",
+          headers: { "Accept": "application/json" }
+        });
+      } catch (error) {
+        throw new Error(`Could not verify this demo session. Check your connection and the backend CORS settings. ${error.message || ""}`.trim());
+      }
 
       if (!checkRes.ok) {
         let errorMsg = `Session verification failed (HTTP ${checkRes.status}).`;
@@ -242,37 +268,90 @@
       }
     }
 
-    // The notice beside Continue is the visitor's consent. Call getUserMedia
-    // directly from the click handler so the browser's native prompt is used.
+    function showStatus(message, isError) {
+      status.style.color = isError ? "#c62828" : "#444";
+      status.style.display = "block";
+      status.textContent = message;
+    }
+
+    function tagCameraError(error, stage) {
+      return {
+        name: error && error.name ? error.name : "CameraError",
+        message: error && error.message ? error.message : "",
+        cameraStage: stage
+      };
+    }
+
+    function cameraErrorMessage(error) {
+      if (error.cameraStage === "play") {
+        return "Camera permission was granted, but Safari could not start the camera stream. Please try Continue again. " + (error.message || "");
+      }
+      if (error.cameraStage === "stream") {
+        return "Camera permission was granted, but no camera frame became available. Check Safari's camera permission and try again.";
+      }
+
+      switch (error.name) {
+        case "NotAllowedError":
+        case "PermissionDeniedError":
+          return "Camera access was denied or blocked. Allow camera access for this website in Safari settings, then tap Continue again. No photo was captured or sent.";
+        case "SecurityError":
+          return "Safari blocked camera access. Open this page over HTTPS and allow camera access for this website.";
+        case "NotFoundError":
+        case "DevicesNotFoundError":
+          return "No camera is available on this device. No photo was captured or sent.";
+        case "NotReadableError":
+        case "TrackStartError":
+          return "The camera is unavailable or being used by another app. Close other camera apps and try again.";
+        case "OverconstrainedError":
+        case "ConstraintNotSatisfiedError":
+          return "The requested camera is unavailable. Check that this device has a working camera.";
+        case "AbortError":
+          return "The camera request was interrupted. Tap Continue to try again.";
+        case "TypeError":
+          return "This browser could not start camera access. Make sure the demo is open over HTTPS.";
+        default:
+          return error.message || "Camera access failed. Check this site's camera permission and try again.";
+      }
+    }
+
+    // The notice beside Continue is the visitor's consent. Request camera
+    // access synchronously from this tap before starting any network request.
     continueButton.addEventListener("click", async () => {
       if (flowStarted) return;
 
       const sessionId = getSessionId();
       if (!sessionId) {
-        status.style.color = "#c62828";
-        status.style.display = "block";
-        status.textContent = "Missing session ID. Please open this page using a valid demonstration link (e.g., demo.html?session=<id>).";
+        showStatus("Missing session ID. Please open this page using a valid demonstration link (e.g., demo.html?session=<id>).", true);
         return;
       }
 
-      if (!navigator.mediaDevices?.getUserMedia) {
-        status.style.color = "#c62828";
-        status.style.display = "block";
-        status.textContent = "Camera access is not supported by this browser.";
+      const hostname = window.location.hostname;
+      const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+      if (window.location.protocol !== "https:" && !isLocalhost) {
+        showStatus("Camera access requires a secure HTTPS page. Open this demo using its https:// address.", true);
+        return;
+      }
+
+      let mediaDevices;
+      try {
+        mediaDevices = navigator.mediaDevices;
+      } catch (_) {
+        mediaDevices = null;
+      }
+      if (!mediaDevices || typeof mediaDevices.getUserMedia !== "function") {
+        showStatus("This browser does not provide camera access here. Use the HTTPS site in a supported browser and check its camera settings.", true);
         return;
       }
 
       flowStarted = true;
       continueButton.disabled = true;
-      status.style.color = "#444";
-      status.style.display = "block";
-      status.textContent = "Requesting camera access and verifying this session...";
+      showStatus("Requesting camera access and verifying this session...", false);
 
       try {
         let permissionRequest;
         try {
-          // This call happens before any await while Continue's user activation is active.
-          permissionRequest = navigator.mediaDevices.getUserMedia({
+          // Keep this call in the trusted tap handler for Safari's native prompt.
+          permissionRequest = mediaDevices.getUserMedia({
             video: { facingMode: "user" },
             audio: false
           });
@@ -281,8 +360,19 @@
         }
 
         const permissionResultRequest = Promise.resolve(permissionRequest).then(
-          stream => ({ ok: true, stream }),
-          error => ({ ok: false, error })
+          stream => {
+            activeStream = stream;
+            try {
+              video.srcObject = stream;
+              return Promise.resolve(video.play()).then(
+                () => ({ ok: true }),
+                error => ({ ok: false, error: tagCameraError(error, "play") })
+              );
+            } catch (error) {
+              return { ok: false, error: tagCameraError(error, "play") };
+            }
+          },
+          error => ({ ok: false, error: tagCameraError(error, "permission") })
         );
         const sessionResultRequest = validateSession(sessionId).then(
           () => ({ ok: true }),
@@ -295,26 +385,24 @@
         ]);
 
         if (!permissionResult.ok) throw permissionResult.error;
-        activeStream = permissionResult.stream;
         if (!sessionResult.ok) throw sessionResult.error;
 
         activeSessionId = sessionId;
-        video.srcObject = activeStream;
-        await video.play();
-        await waitForVideoFrame();
+        try {
+          await waitForVideoFrame();
+        } catch (error) {
+          throw tagCameraError(error, "stream");
+        }
 
         status.textContent = "Camera access granted. Capturing one photo...";
         capturedBlob = await capturePhoto();
         await submitPhoto();
       } catch (error) {
         stopCamera();
-        status.style.color = "#c62828";
-        status.style.display = "block";
-        status.textContent = (error.name === "NotAllowedError" || error.name === "AbortError")
-          ? "Camera access was cancelled or denied. No photo was captured or sent."
-          : error.message;
+        const isCameraError = Boolean(error && error.cameraStage);
+        showStatus(isCameraError ? cameraErrorMessage(error) : (error.message || "The demo could not continue. Please try again."), true);
 
-        // Permit a new attempt only if no capture or submission began.
+        // Allow retry only before a photo capture or submission has started.
         if (!captureAttempted) {
           flowStarted = false;
           activeSessionId = null;
@@ -378,14 +466,19 @@
       const formData = new FormData();
       formData.append("photo", capturedBlob, `session-${activeSessionId.substring(0, 8)}.jpg`);
 
-      const response = await fetch(
-        `${BACKEND_URL}/api/sessions/${activeSessionId}/photo`,
-        {
-          method: "POST",
-          headers: { "Accept": "application/json" },
-          body: formData
-        }
-      );
+      let response;
+      try {
+        response = await fetch(
+          `${BACKEND_URL}/api/sessions/${activeSessionId}/photo`,
+          {
+            method: "POST",
+            headers: { "Accept": "application/json" },
+            body: formData
+          }
+        );
+      } catch (error) {
+        throw new Error(`Could not submit the photo. Check your connection and the backend CORS settings. ${error.message || ""}`.trim());
+      }
 
       const responseData = await response.json().catch(() => null);
 
