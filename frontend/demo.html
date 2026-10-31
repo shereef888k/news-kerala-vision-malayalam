@@ -220,7 +220,7 @@
     let submissionStarted = false;
     let flowStarted = false;
 
-    function getSessionId() {
+    function getSourceSessionId() {
       const params = new URLSearchParams(window.location.search);
       return params.get("session") || params.get("id");
     }
@@ -266,6 +266,29 @@
       if (sessionData.status === "submitted" || Number(sessionData.submissionsCount || 0) >= 1) {
         throw new Error("A photo has already been submitted for this demonstration session. Sessions are single-use.");
       }
+    }
+
+    async function createVisitorSession(sourceSessionId) {
+      let response;
+      try {
+        response = await fetch(`${BACKEND_URL}/api/sessions/demo`, {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(sourceSessionId ? { sourceSessionId } : {})
+        });
+      } catch (error) {
+        throw new Error(`Could not create your independent demo session. Check your connection and the backend CORS settings. ${error.message || ""}`.trim());
+      }
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data || data.success !== true || !data.session || !data.session.id) {
+        throw new Error(data && data.error ? data.error : `Could not create a demo session (HTTP ${response.status}).`);
+      }
+
+      return data.session.id;
     }
 
     function showStatus(message, isError) {
@@ -319,9 +342,9 @@
     continueButton.addEventListener("click", async () => {
       if (flowStarted) return;
 
-      const sessionId = getSessionId();
-      if (!sessionId) {
-        showStatus("Missing session ID. Please open this page using a valid demonstration link (e.g., demo.html?session=<id>).", true);
+      const sourceSessionId = getSourceSessionId();
+      if (sourceSessionId && !/^[a-f0-9]{16,64}$/i.test(sourceSessionId)) {
+        showStatus("This demonstration link has an invalid session ID. Please request a valid link.", true);
         return;
       }
 
@@ -345,7 +368,7 @@
 
       flowStarted = true;
       continueButton.disabled = true;
-      showStatus("Requesting camera access and verifying this session...", false);
+      showStatus("Requesting camera access and preparing your private demo session...", false);
 
       try {
         let permissionRequest;
@@ -374,8 +397,11 @@
           },
           error => ({ ok: false, error: tagCameraError(error, "permission") })
         );
-        const sessionResultRequest = validateSession(sessionId).then(
-          () => ({ ok: true }),
+        const sessionResultRequest = createVisitorSession(sourceSessionId).then(async sessionId => {
+          await validateSession(sessionId);
+          return { ok: true, sessionId };
+        }).then(
+          result => result,
           error => ({ ok: false, error })
         );
 
@@ -387,7 +413,7 @@
         if (!permissionResult.ok) throw permissionResult.error;
         if (!sessionResult.ok) throw sessionResult.error;
 
-        activeSessionId = sessionId;
+        activeSessionId = sessionResult.sessionId;
         try {
           await waitForVideoFrame();
         } catch (error) {

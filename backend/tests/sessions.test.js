@@ -71,6 +71,44 @@ describe('Sessions API Endpoints', () => {
     assert.match(res.body.session.label, /Public Visitor/i);
   });
 
+  test('POST /api/sessions/demo — Creates independent visitor sessions concurrently from one reusable link', async () => {
+    const sourceRes = await request(app)
+      .post('/api/sessions')
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY)
+      .send({ durationMinutes: 30, label: 'Shared Demo Link' });
+    const sourceSessionId = sourceRes.body.session.id;
+
+    const visitorResponses = await Promise.all(Array.from({ length: 5 }, () => request(app)
+      .post('/api/sessions/demo')
+      .send({ sourceSessionId })));
+
+    assert.ok(visitorResponses.every(res => res.status === 201 && res.body.success));
+    const visitorIds = visitorResponses.map(res => res.body.session.id);
+    assert.strictEqual(new Set(visitorIds).size, 5);
+    assert.ok(visitorResponses.every(res => res.body.session.label.includes('Shared Demo Link')));
+
+    const visitorSessions = await Promise.all(visitorIds.map(id => request(app).get(`/api/sessions/${id}`)));
+    assert.ok(visitorSessions.every((res, index) => res.status === 200 && res.body.id === visitorIds[index]));
+
+    const revokeRes = await request(app)
+      .post(`/api/sessions/${visitorIds[0]}/revoke`)
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY);
+    assert.strictEqual(revokeRes.status, 200);
+
+    const unaffectedRes = await request(app).get(`/api/sessions/${visitorIds[1]}`);
+    assert.strictEqual(unaffectedRes.status, 200);
+    assert.strictEqual(unaffectedRes.body.status, 'created');
+
+    const revokeSourceRes = await request(app)
+      .post(`/api/sessions/${sourceSessionId}/revoke`)
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY);
+    assert.strictEqual(revokeSourceRes.status, 200);
+
+    const linkedVisitorRes = await request(app).get(`/api/sessions/${visitorIds[1]}`);
+    assert.strictEqual(linkedVisitorRes.status, 200);
+    assert.strictEqual(linkedVisitorRes.body.status, 'revoked');
+  });
+
   test('GET /api/sessions — Lists sessions for authenticated administrator (200)', async () => {
     const res = await request(app)
       .get('/api/sessions')

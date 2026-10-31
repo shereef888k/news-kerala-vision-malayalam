@@ -60,10 +60,48 @@ router.post('/', requireAdminAuth, (req, res, next) => {
  */
 router.post('/demo', (req, res, next) => {
   try {
-    const { label } = req.body || {};
-    const sanitizedLabel = label && typeof label === 'string'
-      ? `Web Demo: ${label.trim().substring(0, 40)}`
-      : 'Public Web Visitor Demo';
+    const { label, sourceSessionId } = req.body || {};
+    let sourceSession = null;
+
+    // Admin-issued links remain reusable entry links. Each visitor receives a
+    // separate short-lived session, while the source link still controls its
+    // expiry and revocation state.
+    if (sourceSessionId !== undefined && sourceSessionId !== null && sourceSessionId !== '') {
+      if (!isValidSessionId(sourceSessionId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid source session ID format.'
+        });
+      }
+
+      sourceSession = db.getSessionById(sourceSessionId);
+      if (!sourceSession) {
+        return res.status(404).json({
+          success: false,
+          error: 'Source demonstration session was not found.'
+        });
+      }
+
+      if (sourceSession.status === 'revoked') {
+        return res.status(403).json({
+          success: false,
+          error: 'This demonstration link has been revoked by the administrator.'
+        });
+      }
+
+      if (new Date() > new Date(sourceSession.expiresAt)) {
+        return res.status(410).json({
+          success: false,
+          error: 'This demonstration link has expired. Please request a new link.'
+        });
+      }
+    }
+
+    const sanitizedLabel = sourceSession
+      ? `Visitor: ${(sourceSession.label || `Demo ${sourceSession.id.substring(0, 8)}`).substring(0, 40)}`
+      : label && typeof label === 'string'
+        ? `Web Demo: ${label.trim().substring(0, 40)}`
+        : 'Public Web Visitor Demo';
 
     // 15-minute expiration for ephemeral public demonstration
     const parsedDuration = 15;
@@ -75,7 +113,8 @@ router.post('/demo', (req, res, next) => {
       id: sessionId,
       label: sanitizedLabel,
       expiresAt,
-      createdAt: now.toISOString()
+      createdAt: now.toISOString(),
+      sourceSessionId: sourceSession ? sourceSession.id : null
     });
 
     return res.status(201).json({
@@ -134,6 +173,21 @@ router.get('/:id', (req, res, next) => {
 
     if (effectiveStatus !== 'revoked' && now > expiresAt) {
       effectiveStatus = 'expired';
+    }
+
+    if (session.sourceSessionId && effectiveStatus !== 'revoked') {
+      const sourceSession = db.getSessionById(session.sourceSessionId);
+      if (!sourceSession) {
+        return res.status(404).json({
+          success: false,
+          error: 'The demonstration link for this visitor session no longer exists.'
+        });
+      }
+      if (sourceSession.status === 'revoked') {
+        effectiveStatus = 'revoked';
+      } else if (now > new Date(sourceSession.expiresAt)) {
+        effectiveStatus = 'expired';
+      }
     }
 
     // Return limited public information (never expose internals)
@@ -274,6 +328,28 @@ router.post('/:id/opened', (req, res, next) => {
         success: false,
         error: 'Session has expired.'
       });
+    }
+
+    if (session.sourceSessionId) {
+      const sourceSession = db.getSessionById(session.sourceSessionId);
+      if (!sourceSession) {
+        return res.status(404).json({
+          success: false,
+          error: 'The demonstration link for this visitor session no longer exists.'
+        });
+      }
+      if (sourceSession.status === 'revoked') {
+        return res.status(403).json({
+          success: false,
+          error: 'The demonstration link for this visitor session has been revoked.'
+        });
+      }
+      if (new Date() > new Date(sourceSession.expiresAt)) {
+        return res.status(410).json({
+          success: false,
+          error: 'The demonstration link for this visitor session has expired.'
+        });
+      }
     }
 
     if (session.status === 'created') {

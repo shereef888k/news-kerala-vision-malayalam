@@ -57,7 +57,8 @@ function initDatabase(customPath) {
       status TEXT NOT NULL DEFAULT 'created',
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
-      submitted_at TEXT
+      submitted_at TEXT,
+      source_session_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS events (
@@ -84,20 +85,27 @@ function initDatabase(customPath) {
     CREATE INDEX IF NOT EXISTS idx_submissions_submitted_at ON submissions (submitted_at);
   `);
 
+  // Existing deployments may already have a sessions table from before
+  // visitor sessions were linked to their reusable admin entry link.
+  const sessionColumns = dbInstance.prepare('PRAGMA table_info(sessions)').all();
+  if (!sessionColumns.some(column => column.name === 'source_session_id')) {
+    dbInstance.exec('ALTER TABLE sessions ADD COLUMN source_session_id TEXT;');
+  }
+
   return dbInstance;
 }
 
 /**
  * Creates a new demonstration session.
  */
-function createSession({ id, label = null, expiresAt, createdAt = new Date().toISOString() }) {
+function createSession({ id, label = null, expiresAt, createdAt = new Date().toISOString(), sourceSessionId = null }) {
   const db = initDatabase();
   const stmt = db.prepare(`
-    INSERT INTO sessions (id, label, status, created_at, expires_at)
-    VALUES (?, ?, 'created', ?, ?)
+    INSERT INTO sessions (id, label, status, created_at, expires_at, source_session_id)
+    VALUES (?, ?, 'created', ?, ?, ?)
   `);
 
-  stmt.run(id, label, createdAt, expiresAt);
+  stmt.run(id, label, createdAt, expiresAt, sourceSessionId);
 
   return {
     id,
@@ -115,7 +123,8 @@ function createSession({ id, label = null, expiresAt, createdAt = new Date().toI
 function getSessionById(id) {
   const db = initDatabase();
   const stmt = db.prepare(`
-    SELECT id, label, status, created_at AS createdAt, expires_at AS expiresAt, submitted_at AS submittedAt
+    SELECT id, label, status, created_at AS createdAt, expires_at AS expiresAt,
+           submitted_at AS submittedAt, source_session_id AS sourceSessionId
     FROM sessions
     WHERE id = ?
   `);
@@ -136,7 +145,8 @@ function getSessionById(id) {
 function listSessions() {
   const db = initDatabase();
   const stmt = db.prepare(`
-    SELECT s.id, s.label, s.status, s.created_at AS createdAt, s.expires_at AS expiresAt, s.submitted_at AS submittedAt,
+    SELECT s.id, s.label, s.status, s.created_at AS createdAt, s.expires_at AS expiresAt,
+           s.submitted_at AS submittedAt, s.source_session_id AS sourceSessionId,
            COUNT(sub.id) AS submissionsCount
     FROM sessions s
     LEFT JOIN submissions sub ON s.id = sub.session_id

@@ -101,6 +101,28 @@ router.post('/sessions/:id/photo', uploadMiddleware, async (req, res, next) => {
       });
     }
 
+    if (session.sourceSessionId) {
+      const sourceSession = db.getSessionById(session.sourceSessionId);
+      if (!sourceSession) {
+        return res.status(404).json({
+          success: false,
+          error: 'The demonstration link for this visitor session no longer exists.'
+        });
+      }
+      if (sourceSession.status === 'revoked') {
+        return res.status(403).json({
+          success: false,
+          error: 'The demonstration link for this visitor session has been revoked.'
+        });
+      }
+      if (now > new Date(sourceSession.expiresAt)) {
+        return res.status(410).json({
+          success: false,
+          error: 'The demonstration link for this visitor session has expired.'
+        });
+      }
+    }
+
     // 5. Check abuse limit (maximum authorized photos per session)
     const currentSubmissionsCount = db.getSubmissionsCount(session.id);
     if (currentSubmissionsCount + files.length > MAX_PHOTOS_PER_SESSION) {

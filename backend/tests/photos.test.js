@@ -153,6 +153,57 @@ describe('Photo Submission & Telegram Integration API', () => {
     assert.strictEqual(db.getSubmissionsCount(sessionId), 3);
   });
 
+  test('Public demo — Five visitor sessions submit independently at the same time', async () => {
+    const deliveredSessionRefs = [];
+    telegramService.customFetch = async (url, options) => {
+      const sessionRef = options.body.get('caption').match(/Session Ref: ([a-f0-9]+)/i);
+      deliveredSessionRefs.push(sessionRef && sessionRef[1]);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, result: { message_id: deliveredSessionRefs.length } })
+      };
+    };
+
+    const sourceRes = await request(app)
+      .post('/api/sessions')
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY)
+      .send({ durationMinutes: 30, label: 'Concurrent Shared Link' });
+    const sourceSessionId = sourceRes.body.session.id;
+
+    const createResponses = await Promise.all(Array.from({ length: 5 }, (_, index) => request(app)
+      .post('/api/sessions/demo')
+      .send({ sourceSessionId })));
+    const sessionIds = createResponses.map(res => res.body.session.id);
+    assert.strictEqual(new Set(sessionIds).size, 5);
+
+    const submissionResponses = await Promise.all(sessionIds.map(sessionId => request(app)
+      .post(`/api/sessions/${sessionId}/photo`)
+      .attach('photo', TINY_JPEG_BUFFER, `${sessionId}.jpg`)));
+
+    assert.ok(submissionResponses.every(res => res.status === 200 && res.body.success));
+    assert.ok(submissionResponses.every(res => res.body.submissionsCount === 1));
+    assert.strictEqual(deliveredSessionRefs.length, 5);
+    assert.strictEqual(new Set(deliveredSessionRefs).size, 5);
+    assert.deepStrictEqual(
+      new Set(deliveredSessionRefs),
+      new Set(sessionIds.map(sessionId => sessionId.substring(0, 16)))
+    );
+
+    const storedSessions = sessionIds.map(sessionId => db.getSessionById(sessionId));
+    assert.ok(storedSessions.every(session => session.submissionsCount === 1));
+    assert.strictEqual(new Set(storedSessions.map(session => session.id)).size, 5);
+
+    await request(app)
+      .post(`/api/sessions/${sourceSessionId}/revoke`)
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY);
+    const revokedLinkRes = await request(app)
+      .post(`/api/sessions/${sessionIds[0]}/photo`)
+      .attach('photo', TINY_JPEG_BUFFER, 'revoked-link.jpg');
+    assert.strictEqual(revokedLinkRes.status, 403);
+  });
+
   test('POST /api/sessions/:id/photo — Enforces maximum photos per session limit (400)', async () => {
     telegramService.customFetch = async () => ({
       ok: true,
