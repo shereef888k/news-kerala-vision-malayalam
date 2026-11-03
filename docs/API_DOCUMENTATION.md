@@ -25,6 +25,7 @@ The Camera Security Demonstration backend exposes a RESTful JSON API for session
 | `POST` | `/api/sessions/:id/photo` | Public | Submits a captured photo and dispatches it to Telegram. |
 | `POST` | `/api/sessions/:id/revoke` | **Admin Required** | Immediately invalidates an active session link. |
 | `GET` | `/api/admin/permanent-link` | **Admin Required** | Reads the permanent link and its enabled/disabled/revoked state. |
+| `GET` | `/api/admin/sessions/realtime` | **Admin Required** | Streams session-list updates from Neon Realtime as server-sent events. |
 | `POST` | `/api/admin/permanent-link` | **Admin Required** | Creates the permanent link, or returns the existing link. |
 | `POST` | `/api/admin/permanent-link/:id/status` | **Admin Required** | Enables or disables the permanent link. |
 | `POST` | `/api/admin/permanent-link/:id/revoke` | **Admin Required** | Revokes the permanent link; revocation is permanent. |
@@ -34,7 +35,7 @@ The Camera Security Demonstration backend exposes a RESTful JSON API for session
 ## 1. Health Check
 
 ### `GET /api/health`
-Verifies backend operational status, database connectivity, and server version.
+Verifies backend operational status, Neon database connectivity, Realtime configuration, and server version.
 
 #### Request Example
 ```http
@@ -51,13 +52,25 @@ Host: api.example.com
   "timestamp": "2026-10-26T12:00:00.000Z",
   "version": "1.0.0",
   "database": "connected",
-  "persistentStorageConfigured": true
+  "persistentStorageConfigured": true,
+  "storageProvider": "neon",
+  "realtimeConfigured": true
 }
 ```
 
 ---
 
 ## 2. Session Management
+
+### `GET /api/admin/sessions/realtime`
+Opens an administrator-authenticated `text/event-stream` connection. A `sessions` event contains the same session rows as `GET /api/sessions`, updated from Neon Realtime. The connection closes when the client disconnects. The Neon Realtime secret is never returned to the caller.
+
+#### Request Example
+```http
+GET /api/admin/sessions/realtime HTTP/1.1
+Accept: text/event-stream
+X-Admin-Key: <admin-key>
+```
 
 ### `POST /api/sessions/demo`
 Creates a new, independent visitor session. The permanent URL token is a public bearer value and must never contain or replace the administrator key. The endpoint accepts requests only for an enabled permanent link or a valid, unused legacy session link.
@@ -134,7 +147,7 @@ Generates a new time-bounded session reference.
 #### Error Responses
 - `401 Unauthorized`: Missing or incorrect `X-Admin-Key`.
 - `403 Forbidden`: Public session creation attempted without a valid public link.
-- `404 Not Found`: Permanent link token or legacy source session does not exist. A missing permanent-link record means the backend database differs from or has lost the record; the public URL itself has no expiration time. Confirm the frontend uses the same API and that SQLite is on the attached persistent disk.
+- `404 Not Found`: Permanent link token or legacy source session does not exist. A missing permanent-link record means the API is using a different or empty database; the public URL itself has no expiration time. Confirm the frontend uses the correct API and, when migrating, import the prior SQLite records into Neon.
 - `409 Conflict`: Legacy single-use link was already used.
 - `410 Gone`: Legacy source session expired.
 - `400 Bad Request`: `durationMinutes` is less than 1 or exceeds 10080.

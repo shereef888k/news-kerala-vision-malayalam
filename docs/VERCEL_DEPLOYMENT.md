@@ -21,9 +21,11 @@ https://news-kerala-vision-malayalam-fronte-five.vercel.app
 
 The API allows the Vercel origin and responds to browser `OPTIONS` preflight requests. After both services deploy:
 
-1. Open `https://camera-security-demo-1.onrender.com/api/health`. Confirm JSON reports `status: "ok"`, `database: "connected"`, and `persistentStorageConfigured: true` after the backend update deploys.
+1. Open `https://camera-security-demo-1.onrender.com/api/health`. Confirm JSON reports `status: "ok"`, `database: "connected"`, `storageProvider: "neon"`, `persistentStorageConfigured: true`, and `realtimeConfigured: true` after the backend update deploys.
 2. Open `https://news-kerala-vision-malayalam-fronte-five.vercel.app/admin.html`, enter the Render `ADMIN_API_KEY` in **Backend & Credentials**, and click **Save Settings** and **Test Ping**.
 3. Create the permanent demo link once and copy it. The URL uses `/demo.html?link=...`; share this visitor URL, never the admin page or admin key.
 4. Open the visitor URL in separate browser sessions. Each one receives an independent session. The notice explains that Continue requests camera access and granting native permission automatically captures and submits one photo; denying or cancelling permission sends nothing.
 
 If the Vercel project is later assigned a different custom domain, add that exact origin to Render's `FRONTEND_ORIGIN` and the allowlist in `backend/server.js`, then redeploy the backend.
+
+The static frontend does not connect directly to Neon. The admin session list receives live updates from the authenticated Render endpoint; Neon connection strings and `NEON_REALTIME_SECRET` stay on Render.

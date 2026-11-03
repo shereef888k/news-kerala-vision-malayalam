@@ -10,6 +10,12 @@ process.env.FRONTEND_ORIGIN = 'https://trusted.github.io,http://localhost:3000';
 const app = require('../server');
 
 describe('Security & Infrastructure Tests', () => {
+  test('Neon Realtime session stream requires administrator authentication', async () => {
+    const res = await request(app).get('/api/admin/sessions/realtime');
+    assert.strictEqual(res.status, 401);
+    assert.strictEqual(res.body.success, false);
+  });
+
   test('GET /api/health — Returns operational system status and version (200)', async () => {
     const res = await request(app).get('/api/health');
 

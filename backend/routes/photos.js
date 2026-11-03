@@ -76,7 +76,7 @@ router.post('/sessions/:id/photo', uploadMiddleware, async (req, res, next) => {
     }
 
     // 2. Validate session existence
-    const session = db.getSessionById(id);
+    const session = await db.getSessionById(id);
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -102,7 +102,7 @@ router.post('/sessions/:id/photo', uploadMiddleware, async (req, res, next) => {
     }
 
     if (session.sourceSessionId) {
-      const sourceSession = db.getSessionById(session.sourceSessionId);
+      const sourceSession = await db.getSessionById(session.sourceSessionId);
       if (!sourceSession) {
         return res.status(404).json({
           success: false,
@@ -130,7 +130,7 @@ router.post('/sessions/:id/photo', uploadMiddleware, async (req, res, next) => {
     }
 
     if (session.permanentLinkId) {
-      const permanentLink = db.getPermanentDemoLinkById(session.permanentLinkId);
+      const permanentLink = await db.getPermanentDemoLinkById(session.permanentLinkId);
       if (!permanentLink || permanentLink.status !== 'enabled') {
         return res.status(403).json({
           success: false,
@@ -140,7 +140,7 @@ router.post('/sessions/:id/photo', uploadMiddleware, async (req, res, next) => {
     }
 
     // 5. Check abuse limit (maximum authorized photos per session)
-    const currentSubmissionsCount = db.getSubmissionsCount(session.id);
+    const currentSubmissionsCount = await db.getSubmissionsCount(session.id);
     if (currentSubmissionsCount + files.length > MAX_PHOTOS_PER_SESSION) {
       return res.status(400).json({
         success: false,
@@ -166,7 +166,7 @@ router.post('/sessions/:id/photo', uploadMiddleware, async (req, res, next) => {
       });
 
       // Store each submission as a separate database record with timestamp & session reference
-      db.recordSubmission({
+      await db.recordSubmission({
         sessionId: session.id,
         submittedAt: submissionTimestamp,
         filename,
@@ -176,7 +176,7 @@ router.post('/sessions/:id/photo', uploadMiddleware, async (req, res, next) => {
     }
 
     // 7. Update session to active state (not completed/locked) with latest timestamp
-    db.markSessionActive(session.id, submissionTimestamp);
+    await db.markSessionActive(session.id, submissionTimestamp);
 
     const updatedCount = currentSubmissionsCount + files.length;
 

@@ -6,7 +6,7 @@ services:
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
-    plan: starter # Persistent SQLite storage requires a Render plan with disk support.
+    plan: starter # Existing disk is retained for legacy SQLite migration and rollback.
     disk:
       name: sessions-data
       mountPath: /var/data
@@ -18,6 +18,12 @@ services:
         value: /var/data/sessions.db
       - key: PERSISTENT_STORAGE_ROOT
         value: /var/data
+      - key: DATABASE_URL
+        sync: false
+      - key: NEON_REALTIME_URL
+        sync: false
+      - key: NEON_REALTIME_SECRET
+        sync: false
       - key: DEMO_SESSION_DURATION_MINUTES
         value: 30
       - key: ADMIN_API_KEY

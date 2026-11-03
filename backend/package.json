@@ -18,17 +18,19 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@neon/realtime": "^0.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
-    "multer": "^1.4.5-lts.1"
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "supertest": "^7.0.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.5.0"
   }
 }

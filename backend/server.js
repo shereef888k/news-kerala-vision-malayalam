@@ -1,18 +1,25 @@
-require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+const projectEnvLocal = path.resolve(__dirname, '../.env.local');
+const backendEnv = path.resolve(__dirname, '.env');
+if (fs.existsSync(projectEnvLocal)) dotenv.config({ path: projectEnvLocal });
+if (fs.existsSync(backendEnv)) dotenv.config({ path: backendEnv });
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const path = require('path');
-
 const db = require('./services/db');
 const telegramService = require('./services/telegram');
 const sessionsRouter = require('./routes/sessions');
 const photosRouter = require('./routes/photos');
 const permanentLinksRouter = require('./routes/permanentLinks');
+const realtimeRouter = require('./routes/realtime');
+const realtimeService = require('./services/realtime');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
 const app = express();
+const databaseReady = Promise.resolve(db.initDatabase());
 const PORT = process.env.PORT || 4000;
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -114,11 +121,14 @@ app.use('/api/sessions/:id/photo', photoSubmissionLimiter);
 // 4. Request Body Parsers
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use((req, res, next) => {
+  databaseReady.then(() => next()).catch(next);
+});
 
 // 5. Health Check Endpoint
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
   try {
-    const databaseStatus = db.healthCheck();
+    const databaseStatus = await db.healthCheck();
     return res.json({
       status: 'ok',
       service: 'Camera Security Demonstration API',
@@ -127,16 +137,20 @@ app.get('/api/health', (req, res) => {
       version: '1.0.0',
       database: 'connected',
       persistentStorageConfigured: databaseStatus.persistentStorageConfigured,
+      storageProvider: databaseStatus.storageProvider || 'sqlite',
+      realtimeConfigured: realtimeService.isConfigured(),
       telegramConfigured: telegramService.isConfigured()
     });
   } catch (error) {
-    console.error('[Health] SQLite check failed:', error.message);
+    console.error('[Health] Database check failed:', error.message);
     return res.status(503).json({
       status: 'error',
       service: 'Camera Security Demonstration API',
       timestamp: new Date().toISOString(),
       database: 'unavailable',
-      persistentStorageConfigured: false
+      persistentStorageConfigured: false,
+      storageProvider: process.env.DATABASE_URL ? 'neon' : 'sqlite',
+      realtimeConfigured: realtimeService.isConfigured()
     });
   }
 });
@@ -145,22 +159,22 @@ app.get('/api/health', (req, res) => {
 app.use('/api/sessions', sessionsRouter);
 app.use('/api', photosRouter);
 app.use('/api', permanentLinksRouter);
+app.use('/api', realtimeRouter);
 
 // 7. 404 & Centralized Error Handlers
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// Initialize persistent database
-db.initDatabase();
-
 // Start server if executed directly
 if (require.main === module) {
+  databaseReady.then(() => {
   const server = app.listen(PORT, () => {
     console.log(`====================================================`);
     console.log(`🛡️  Camera Security Demo Backend Running`);
     console.log(`   Port:            ${PORT}`);
     console.log(`   Environment:     ${process.env.NODE_ENV || 'development'}`);
-    console.log(`   Database:        ${process.env.DATABASE_PATH || 'data/sessions.db'}`);
+    console.log(`   Database:        ${process.env.DATABASE_URL ? 'Neon PostgreSQL' : (process.env.DATABASE_PATH || 'local SQLite')}`);
+    console.log(`   Realtime:        ${realtimeService.isConfigured() ? 'Configured' : 'Not Configured'}`);
     console.log(`   Allowed Origins: ${allowedOrigins.join(', ')}`);
     console.log(`   Telegram Status: ${telegramService.isConfigured() ? 'Configured ✅' : 'Not Configured ⚠️'}`);
     console.log(`====================================================`);
@@ -169,15 +183,21 @@ if (require.main === module) {
   // Graceful shutdown handling
   const shutdown = (signal) => {
     console.log(`\nReceived ${signal}. Gracefully shutting down...`);
-    server.close(() => {
-      db.closeDatabase();
-      console.log('Database connection closed. Process exited.');
+    realtimeRouter.closeStreams();
+    server.close(async () => {
+      await realtimeService.close();
+      await db.closeDatabase();
+      console.log('Database connections closed. Process exited.');
       process.exit(0);
     });
   };
 
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
+  }).catch(error => {
+    console.error('[Startup] Database initialization failed:', error.message);
+    process.exitCode = 1;
+  });
 }
 
 module.exports = app;

@@ -17,7 +17,7 @@ function isValidSessionId(id) {
  * POST /api/sessions
  * Create a new demo session (Admin Authorized).
  */
-router.post('/', requireAdminAuth, (req, res, next) => {
+router.post('/', requireAdminAuth, async (req, res, next) => {
   try {
     const { label, durationMinutes = 30 } = req.body;
 
@@ -36,7 +36,7 @@ router.post('/', requireAdminAuth, (req, res, next) => {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + parsedDuration * 60 * 1000).toISOString();
 
-    const session = db.createSession({
+    const session = await db.createSession({
       id: sessionId,
       label: sanitizedLabel,
       expiresAt,
@@ -58,7 +58,7 @@ router.post('/', requireAdminAuth, (req, res, next) => {
  * Create one visitor session from a permanent bearer link or a legacy
  * admin-issued single-use session link.
  */
-router.post('/demo', (req, res, next) => {
+router.post('/demo', async (req, res, next) => {
   try {
     const { sourceSessionId, permanentLinkToken } = req.body || {};
     let sourceSession = null;
@@ -76,7 +76,7 @@ router.post('/demo', (req, res, next) => {
         return res.status(400).json({ success: false, error: 'Invalid permanent demo link token.' });
       }
 
-      permanentLink = db.getPermanentDemoLinkByToken(permanentLinkToken);
+      permanentLink = await db.getPermanentDemoLinkByToken(permanentLinkToken);
       if (!permanentLink) {
         return res.status(404).json({
           success: false,
@@ -91,7 +91,7 @@ router.post('/demo', (req, res, next) => {
         return res.status(400).json({ success: false, error: 'Invalid source session ID format.' });
       }
 
-      sourceSession = db.getSessionById(sourceSessionId);
+      sourceSession = await db.getSessionById(sourceSessionId);
       if (!sourceSession) {
         return res.status(404).json({ success: false, error: 'Source demonstration session was not found.' });
       }
@@ -101,7 +101,7 @@ router.post('/demo', (req, res, next) => {
       if (new Date() > new Date(sourceSession.expiresAt)) {
         return res.status(410).json({ success: false, error: 'This demonstration link has expired. Please request a new link.' });
       }
-      if (sourceSession.submissionsCount > 0 || db.getVisitorSessionForSource(sourceSessionId)) {
+      if (sourceSession.submissionsCount > 0 || await db.getVisitorSessionForSource(sourceSessionId)) {
         return res.status(409).json({ success: false, error: 'This single-use demonstration link has already been used.' });
       }
     } else {
@@ -123,7 +123,7 @@ router.post('/demo', (req, res, next) => {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + parsedDuration * 60 * 1000).toISOString();
 
-    const session = db.createSession({
+    const session = await db.createSession({
       id: sessionId,
       label: sanitizedLabel,
       expiresAt,
@@ -153,9 +153,9 @@ router.post('/demo', (req, res, next) => {
  * GET /api/sessions
  * List all sessions (Admin Authorized).
  */
-router.get('/', requireAdminAuth, (req, res, next) => {
+router.get('/', requireAdminAuth, async (req, res, next) => {
   try {
-    const sessions = db.listSessions();
+    const sessions = await db.listSessions();
     return res.json({
       success: true,
       sessions
@@ -169,7 +169,7 @@ router.get('/', requireAdminAuth, (req, res, next) => {
  * GET /api/sessions/:id
  * Retrieve limited public session info for visitor page or inspection.
  */
-router.get('/:id', (req, res, next) => {
+router.get('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -180,7 +180,7 @@ router.get('/:id', (req, res, next) => {
       });
     }
 
-    const session = db.getSessionById(id);
+    const session = await db.getSessionById(id);
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -198,7 +198,7 @@ router.get('/:id', (req, res, next) => {
     }
 
     if (session.sourceSessionId && effectiveStatus !== 'revoked') {
-      const sourceSession = db.getSessionById(session.sourceSessionId);
+      const sourceSession = await db.getSessionById(session.sourceSessionId);
       if (!sourceSession) {
         return res.status(404).json({
           success: false,
@@ -215,12 +215,12 @@ router.get('/:id', (req, res, next) => {
     }
 
     if (session.permanentLinkId && effectiveStatus !== 'revoked') {
-      const permanentLink = db.getPermanentDemoLinkById(session.permanentLinkId);
+      const permanentLink = await db.getPermanentDemoLinkById(session.permanentLinkId);
       if (!permanentLink || permanentLink.status !== 'enabled') effectiveStatus = 'revoked';
     }
 
     // Return limited public information (never expose internals)
-    const events = db.listEvents(id);
+    const events = await db.listEvents(id);
     return res.json({
       success: true,
       id: session.id,
@@ -262,7 +262,7 @@ router.post('/:id/events', async (req, res, next) => {
       });
     }
 
-    const session = db.getSessionById(id);
+    const session = await db.getSessionById(id);
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -277,7 +277,7 @@ router.post('/:id/events', async (req, res, next) => {
       return res.status(410).json({ success: false, error: 'Session has expired.' });
     }
     if (session.sourceSessionId) {
-      const sourceSession = db.getSessionById(session.sourceSessionId);
+      const sourceSession = await db.getSessionById(session.sourceSessionId);
       if (!sourceSession || sourceSession.status === 'revoked') {
         return res.status(403).json({ success: false, error: 'The demonstration link for this visitor session is unavailable.' });
       }
@@ -286,7 +286,7 @@ router.post('/:id/events', async (req, res, next) => {
       }
     }
     if (session.permanentLinkId) {
-      const permanentLink = db.getPermanentDemoLinkById(session.permanentLinkId);
+      const permanentLink = await db.getPermanentDemoLinkById(session.permanentLinkId);
       if (!permanentLink || permanentLink.status !== 'enabled') {
         return res.status(403).json({ success: false, error: 'The permanent demo link has been disabled or revoked.' });
       }
@@ -294,7 +294,7 @@ router.post('/:id/events', async (req, res, next) => {
 
     // Record event in DB
     const now = new Date().toISOString();
-    const event = db.recordEvent({
+    const event = await db.recordEvent({
       sessionId: id,
       eventType,
       metadata: typeof metadata === 'object' ? metadata : null,
@@ -303,7 +303,7 @@ router.post('/:id/events', async (req, res, next) => {
 
     // If event is page_opened, also update session status to opened if it was created
     if (eventType === 'page_opened' && session.status === 'created') {
-      db.markSessionOpened(id);
+      await db.markSessionOpened(id);
     }
 
     // Send non-sensitive Telegram notification if configured
@@ -347,7 +347,7 @@ router.post('/:id/events', async (req, res, next) => {
  * POST /api/sessions/:id/opened
  * Record that a visitor has opened the demonstration link.
  */
-router.post('/:id/opened', (req, res, next) => {
+router.post('/:id/opened', async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -358,7 +358,7 @@ router.post('/:id/opened', (req, res, next) => {
       });
     }
 
-    const session = db.getSessionById(id);
+    const session = await db.getSessionById(id);
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -382,7 +382,7 @@ router.post('/:id/opened', (req, res, next) => {
     }
 
     if (session.sourceSessionId) {
-      const sourceSession = db.getSessionById(session.sourceSessionId);
+      const sourceSession = await db.getSessionById(session.sourceSessionId);
       if (!sourceSession) {
         return res.status(404).json({
           success: false,
@@ -410,7 +410,7 @@ router.post('/:id/opened', (req, res, next) => {
     }
 
     if (session.permanentLinkId) {
-      const permanentLink = db.getPermanentDemoLinkById(session.permanentLinkId);
+      const permanentLink = await db.getPermanentDemoLinkById(session.permanentLinkId);
       if (!permanentLink || permanentLink.status !== 'enabled') {
         return res.status(403).json({
           success: false,
@@ -420,7 +420,7 @@ router.post('/:id/opened', (req, res, next) => {
     }
 
     if (session.status === 'created') {
-      db.markSessionOpened(id);
+      await db.markSessionOpened(id);
     }
 
     return res.json({
@@ -436,7 +436,7 @@ router.post('/:id/opened', (req, res, next) => {
  * POST /api/sessions/:id/revoke
  * Revoke an active demonstration session (Admin Authorized).
  */
-router.post('/:id/revoke', requireAdminAuth, (req, res, next) => {
+router.post('/:id/revoke', requireAdminAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -447,7 +447,7 @@ router.post('/:id/revoke', requireAdminAuth, (req, res, next) => {
       });
     }
 
-    const session = db.getSessionById(id);
+    const session = await db.getSessionById(id);
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -455,7 +455,7 @@ router.post('/:id/revoke', requireAdminAuth, (req, res, next) => {
       });
     }
 
-    db.revokeSession(id);
+    await db.revokeSession(id);
 
     return res.json({
       success: true,

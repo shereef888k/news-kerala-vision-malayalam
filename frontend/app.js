@@ -36,6 +36,7 @@
 
   // State
   let pollIntervalId = null;
+  let sessionsStreamController = null;
   let currentPermanentLink = null;
 
   // Initialize
@@ -45,9 +46,8 @@
     checkBackendHealth();
     fetchSessions();
     fetchPermanentDemoLink();
-
-    // Auto-refresh sessions every 10 seconds to detect status changes
-    pollIntervalId = setInterval(fetchSessions, 10000);
+    startRealtimeSessionUpdates();
+    window.addEventListener('pagehide', stopRealtimeSessionUpdates, { once: true });
   }
 
   // Load saved credentials from localStorage (browser-local only)
@@ -94,6 +94,7 @@
       checkBackendHealth();
       fetchSessions();
       fetchPermanentDemoLink();
+      startRealtimeSessionUpdates();
     });
 
     btnTestConnection.addEventListener('click', checkBackendHealth);
@@ -175,7 +176,9 @@
           statusText.textContent = 'Online, but backend storage status is unknown';
         } else {
           statusDot.className = 'indicator-dot';
-          statusText.textContent = `Online (v${data.version || '1.0'})`;
+          const realtimeLabel = data.realtimeConfigured ? ' + Realtime' : '';
+          const storageLabel = data.storageProvider === 'neon' ? ' — Neon PostgreSQL' : '';
+          statusText.textContent = `Online (v${data.version || '1.0'})${storageLabel}${realtimeLabel}`;
         }
       } else {
         statusDot.className = 'indicator-dot offline';
@@ -433,6 +436,71 @@
         </tr>
       `;
     }
+  }
+
+  function stopRealtimeSessionUpdates() {
+    if (sessionsStreamController) {
+      sessionsStreamController.abort();
+      sessionsStreamController = null;
+    }
+    if (pollIntervalId) {
+      clearInterval(pollIntervalId);
+      pollIntervalId = null;
+    }
+  }
+
+  function startRealtimeSessionUpdates() {
+    stopRealtimeSessionUpdates();
+    const adminKey = localStorage.getItem('CAMERA_DEMO_ADMIN_KEY') || '';
+    if (!adminKey) return;
+
+    const controller = new AbortController();
+    sessionsStreamController = controller;
+    const apiUrl = window.APP_CONFIG.getApiBaseUrl();
+
+    (async () => {
+      try {
+        const response = await fetch(`${apiUrl}/api/admin/sessions/realtime`, {
+          method: 'GET',
+          headers: { 'Accept': 'text/event-stream', 'X-Admin-Key': adminKey },
+          signal: controller.signal
+        });
+        if (!response.ok || !response.body) {
+          throw new Error(`Realtime request failed with HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (!controller.signal.aborted) {
+          const { value, done } = await reader.read();
+          if (done) throw new Error('Realtime connection ended.');
+          buffer += decoder.decode(value, { stream: true });
+          const blocks = buffer.split(/\r?\n\r?\n/);
+          buffer = blocks.pop() || '';
+
+          for (const block of blocks) {
+            let eventName = 'message';
+            const dataLines = [];
+            for (const line of block.split(/\r?\n/)) {
+              if (line.startsWith('event:')) eventName = line.slice(6).trim();
+              else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+            }
+            if (eventName === 'sessions' && dataLines.length) {
+              renderSessions(JSON.parse(dataLines.join('\n')));
+            } else if (eventName === 'error') {
+              throw new Error('Realtime updates are unavailable.');
+            }
+          }
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.warn('[Dashboard] Neon Realtime unavailable; using periodic refresh:', error.message);
+        sessionsStreamController = null;
+        if (!pollIntervalId) pollIntervalId = setInterval(fetchSessions, 10000);
+      }
+    })();
   }
 
   // Render sessions table

@@ -1,16 +1,16 @@
 # Cross-Platform Camera Security Demonstration Platform
 
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.5.0-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Express](https://img.shields.io/badge/Express-4.21.2-000000?logo=express&logoColor=white)](https://expressjs.com/)
-[![SQLite](https://img.shields.io/badge/Database-SQLite%20Persistent-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![Neon](https://img.shields.io/badge/Database-Neon%20PostgreSQL-00E599?logo=postgresql&logoColor=white)](https://neon.com/)
 [![Telegram Bot API](https://img.shields.io/badge/Telegram-Bot%20API%20sendPhoto-26A5E4?logo=telegram&logoColor=white)](https://core.telegram.org/bots/api#sendphoto)
-[![Tests](https://img.shields.io/badge/Tests-50%20Passed-brightgreen)](https://nodejs.org/api/test.html)
+[![Tests](https://img.shields.io/badge/Tests-51%20Passed-brightgreen)](https://nodejs.org/api/test.html)
 
 A professional, consent-based Phishing & Camera Security Awareness Demonstration platform designed to evaluate browser permission models and social engineering recognition across desktop and mobile devices.
 
 The platform provides a modern, video-style landing page with video playback simulation, thumbnails, and advertisement-style content, with zero camera access on initial page load or ordinary video playback. A separate, clearly disclosed **Phishing Awareness Simulation** allows visitors to understand how misleading pages lure users and how browser security protects them:
 - **Safe Simulation Mode**: Uses a prerecorded synthetic test graphic (100% safe, zero camera hardware access).
-- **Live Hardware Gate Mode**: Clearly discloses the automatic photo flow. Continue invokes the browser's native camera permission prompt; if permission is granted, one photo is captured and sent to Telegram automatically without a preview or another confirmation.
+- **Live Hardware Gate Mode**: Clearly discloses the camera flow and invokes the browser's native permission prompt only after consent.
 - **Awareness Debrief**: Explains critical red flags (context mismatch, social engineering lures, native permission gates, hardware LED status) and reviews non-sensitive demonstration telemetry (`page_opened`, `demo_button_clicked`, `simulation_completed`).
 
 > [!IMPORTANT]
@@ -47,7 +47,7 @@ The repository is organized into two decoupled applications:
 │   ├── demo.html                 # Separate educational camera awareness test (no live preview)
 │   ├── admin.html                # Administrator console & session manager
 │   ├── style.css                 # Dark navy & slate security design system
-│   ├── app.js                    # Admin dashboard logic, session polling & link copying
+│   ├── app.js                    # Admin dashboard, realtime session updates & link copying
 │   ├── demo.js                   # Landing page video loop & camera snapshot / delivery logic
 │   └── config.js                 # Public backend URL resolver (Zero secrets)
 ├── backend/                      # Production Node.js & Express REST API
@@ -58,7 +58,9 @@ The repository is organized into two decoupled applications:
 │   │   ├── sessions.js           # Session generation, verification & revocation
 │   │   └── photos.js             # Multipart upload, MIME check & Telegram delivery
 │   ├── services/
-│   │   ├── db.js                 # Persistent SQLite database layer
+│   │   ├── db.js                 # Neon in production; SQLite test adapter in tests
+│   │   ├── db-postgres.js        # Neon PostgreSQL pool and persistent schema
+│   │   ├── realtime.js           # Server-only Neon Realtime subscriptions
 │   │   └── telegram.js           # Telegram Bot API sendPhoto integration
 │   ├── middleware/
 │   │   ├── auth.js               # Timing-safe Administrator API key middleware
@@ -83,47 +85,31 @@ The repository is organized into two decoupled applications:
 ## Quick Start (Local Setup)
 
 ### 1. Prerequisites
-- **Node.js** >= 18.0.0 (Node 20+ recommended)
+- **Node.js** >= 22.5.0 (the SQLite test adapter uses the built-in Node SQLite driver)
 - A **Telegram account** (for receiving submitted photos)
 
 ---
 
-### 2. Configure & Start the Backend
+### 2. Configure Neon and Start the Backend
 
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-2. Install dependencies:
+1. Install root and backend dependencies:
    ```bash
    npm install
+   npm install --prefix backend
    ```
-3. Create your `.env` configuration:
+2. Sign in to Neon and deploy the services declared in `neon.ts`:
    ```bash
-   cp .env.example .env
+   neon login
+   neon deploy
    ```
-4. Open `.env` and fill in your credentials:
-   ```env
-   PORT=4000
-   NODE_ENV=development
-   ADMIN_API_KEY=my_secure_admin_password_12345
-   TELEGRAM_BOT_TOKEN=7123456789:AAFlxyz-ExampleBotToken
-   TELEGRAM_CHAT_ID=987654321
-   FRONTEND_ORIGIN=http://localhost:3000,http://localhost:5500
-   DATABASE_PATH=data/sessions.db
-   PERSISTENT_STORAGE_ROOT=data
-   DEMO_SESSION_DURATION_MINUTES=30
-   ```
-   *(See [docs/TELEGRAM_BOT_SETUP.md](docs/TELEGRAM_BOT_SETUP.md) for how to get your Bot Token and Chat ID in 2 minutes).*
-
-5. Start the backend:
+   Neon writes `DATABASE_URL`, `NEON_REALTIME_URL`, and `NEON_REALTIME_SECRET` to the ignored root `.env.local`. The backend loads this file automatically; keep the Realtime secret on the server.
+3. Copy `backend/.env.example` to `backend/.env` and set `ADMIN_API_KEY`, Telegram credentials, and local `FRONTEND_ORIGIN`. Do not put Neon secrets in the static frontend.
+4. Build-check the JavaScript and Neon config, then start the backend:
    ```bash
+   npm run build
    npm start
    ```
-   The backend will start at `http://localhost:4000`. Test health at:
-   ```text
-   http://localhost:4000/api/health
-   ```
+   The backend starts at `http://localhost:4000`. Check `http://localhost:4000/api/health` for Neon PostgreSQL and Realtime status.
 
 ---
 

@@ -1,180 +1,76 @@
-# Backend Production Deployment Guide
+# Backend Deployment: Render + Neon
 
-This guide describes how to deploy the Node.js Express backend service to modern cloud platforms with HTTPS and persistent SQLite storage.
+Production session, permanent-link, event, and submission records use Neon PostgreSQL. The admin session table subscribes to Neon Realtime through an authenticated server endpoint; the Realtime secret stays on the backend. SQLite remains available for local tests and offline development.
 
----
+## 1. Provision Neon
 
-## 1. Cloud Provider Recommendations
+Use Node.js 22.5 or newer. From the project root:
 
-The backend requires:
-- **Node.js** >= 18.0.0 (Node 20 LTS or Node 22+ recommended).
-- **HTTPS** endpoint (required by browsers for secure CORS and camera communication).
-- **Environment variables** support.
-- **Persistent storage** for the SQLite sessions database (`sessions.db`).
+```bash
+npm install
+npm install --prefix backend
+neon login
+neon init -y --org-id org-falling-morning-29932094 --project-id misty-dawn-89271289 --branch production --services postgres,realtime --no-agent-setup
+neon config plan
+neon deploy
+```
 
-Recommended providers:
-1. **Render.com** (Web Service with optional Persistent Disk).
-2. **Railway.app** (Volume attached to service).
-3. **Fly.io** (Fly Volume mounted at `/data`).
-4. **DigitalOcean / Hetzner / AWS Lightsail** (Standard VPS with full filesystem control).
+The CLI writes the branch's Neon variables to the ignored root `.env.local`. The app uses the pooled `DATABASE_URL` for normal API traffic and reads `NEON_REALTIME_URL` and `NEON_REALTIME_SECRET` on the server. Do not put any of these values in Vercel or browser JavaScript. Keep the secret file private.
 
----
+`neon init` creates `neon.ts`; PostgreSQL is the branch's built-in database and `preview.realtime` enables Realtime. Review `neon config plan` before deploying the config.
 
-## 2. Deploying to Render.com
+## 2. Configure the Render API
 
-The repository includes `render.yaml`, configured for the supplied Render backend, a 1 GB persistent disk mounted at `/var/data`, and SQLite at `/var/data/sessions.db`. Deploy using Render's Blueprint flow so the disk and database path are provisioned together. Production now requires both `DATABASE_PATH` and `PERSISTENT_STORAGE_ROOT`, and refuses a database path outside the declared root. Also confirm the persistent disk is actually attached to this Render service: a directory with the right name on an ephemeral filesystem is not persistent.
+Keep the existing `camera-security-demo-1` service, its `backend` root directory, and its current SQLite disk attached until any needed legacy data has been imported. The SQLite disk is only a migration source and rollback copy after Neon is enabled.
 
-### Step 1: Create the Blueprint service
-1. Log in to [Render.com](https://render.com) and choose **New +** then **Blueprint**.
-2. Connect the GitHub repository containing this project and select its `render.yaml`.
-3. Confirm this is the `camera-security-demo-1` API service, with root directory `backend`, build command `npm install`, start command `npm start`, and health path `/api/health`. The separate `news-kerala-vision-malayalam.onrender.com` host serves the website redirect, not the API.
-4. The Blueprint uses a Starter service because Render persistent disks require a paid service plan.
-5. Keep this SQLite-backed service to one instance; Render persistent disks are attached to one service instance and cannot be shared across horizontally scaled instances.
+Set these variables in Render's **Environment** page. For Neon values, copy them from the private `.env.local` created by `neon deploy` without printing them in logs:
 
-### Step 2: Configure Persistent Disk (Important)
-> [!NOTE]
-> Without a persistent disk, the SQLite database and permanent-link record can disappear on restart or redeploy. The reusable link therefore requires a disk-backed database.
+| Variable | Value |
+| --- | --- |
+| `NODE_ENV` | `production` |
+| `DATABASE_URL` | Neon pooled connection string |
+| `NEON_REALTIME_URL` | Neon Realtime endpoint |
+| `NEON_REALTIME_SECRET` | Neon Realtime server secret |
+| `FRONTEND_ORIGIN` | `https://news-kerala-vision-malayalam-fronte-five.vercel.app` |
+| `ADMIN_API_KEY` | Existing server-only admin key |
+| `TELEGRAM_BOT_TOKEN` | Existing server-only Telegram bot token |
+| `TELEGRAM_CHAT_ID` | Existing server-only Telegram destination |
 
-1. Under the service's **Disks** tab, confirm the Blueprint-created disk exists.
-2. Mount Path: `/var/data`; Size: `1 GB`.
-3. Confirm `DATABASE_PATH=/var/data/sessions.db` exactly. Do not point SQLite to the service's ephemeral application directory.
+The `render.yaml` marks Neon values `sync: false` so Blueprint sync cannot overwrite them. The API fails startup if `DATABASE_URL` is missing in production; it does not silently create a new SQLite database.
 
-### Step 3: Set Environment Variables
-Under the **Environment** tab on Render, add:
+Deploy the latest project to Render after setting the environment variables. The server creates tables and indexes idempotently at startup. Do not remove the old disk while importing legacy records.
 
-| Key | Example Value | Description |
-| :--- | :--- | :--- |
-| `NODE_ENV` | `production` | Enables production security optimizations. |
-| `PORT` | `10000` | Render default web port (automatically populated). |
-| `ADMIN_API_KEY` | `8c4d9e2a7b1f6305a...` | Cryptographically random admin key. |
-| `TELEGRAM_BOT_TOKEN` | `7123456789:AAFl...` | Official Telegram Bot Token from BotFather. |
-| `TELEGRAM_CHAT_ID` | `987654321` | Numeric Telegram chat identifier. |
-| `FRONTEND_ORIGIN` | `https://news-kerala-vision-malayalam-fronte-five.vercel.app` | Exact deployed Vercel origin; no trailing slash. |
-| `DATABASE_PATH` | `/var/data/sessions.db` | Path to persistent storage disk. |
-| `PERSISTENT_STORAGE_ROOT` | `/var/data` | Attached disk mount root containing the SQLite database. |
-| `DEMO_SESSION_DURATION_MINUTES` | `30` | Lifetime of each visitor session created from the reusable link. |
+## 3. Preserve existing SQLite records
 
----
+If the old SQLite database contains the permanent link or session history, leave the disk mounted. After deploying the new backend and setting the Neon variables, run the migration from the Render Shell. First preview row counts:
 
-## 3. Deploying to Railway.app
+```bash
+LEGACY_SQLITE_PATH=/var/data/sessions.db node scripts/migrate-sqlite-to-neon.js
+```
 
-1. Log in to [Railway.app](https://railway.app) and create a **New Project** &rarr; **Deploy from GitHub repo**.
-2. Set Root Directory to `/backend`.
-3. Under **Settings** &rarr; **Volumes**, click **Add Volume** mounted to `/app/data`.
-4. Under **Variables**, add:
-   - `ADMIN_API_KEY=<secure-random-key>`
-   - `TELEGRAM_BOT_TOKEN=<token>`
-   - `TELEGRAM_CHAT_ID=<chat-id>`
-   - `FRONTEND_ORIGIN=https://news-kerala-vision-malayalam-fronte-five.vercel.app`
-   - `DATABASE_PATH=/app/data/sessions.db`
-   - `PERSISTENT_STORAGE_ROOT=/app/data`
-5. Click **Generate Domain** under Networking to get your public HTTPS URL.
+Only if the counts are expected, import them:
 
----
+```bash
+LEGACY_SQLITE_PATH=/var/data/sessions.db node scripts/migrate-sqlite-to-neon.js --apply
+```
 
-## 4. Deploying to a Linux VPS (Ubuntu/Debian with Systemd & Nginx)
+The importer preserves session IDs, permanent-link tokens and status, events, and submission metadata. It does not copy photo files (the app does not store photo bytes in SQLite). It is safe to rerun; conflicts are skipped. The script prints counts only, never tokens. If the source database was already lost or never persisted, the old link record cannot be reconstructed from its URL alone.
 
-1. Clone repository and install dependencies:
-   ```bash
-   cd /var/www/camera-demo/backend
-   npm install --omit=dev
-   ```
-2. Create production `.env` file:
-   ```bash
-   cp .env.example .env
-   nano .env
-   ```
-3. Set up a systemd service (`/etc/systemd/system/camera-backend.service`):
-   ```ini
-   [Unit]
-   Description=Camera Security Demonstration Backend
-   After=network.target
+After migration, open `/admin.html` and verify the existing permanent link before removing or decommissioning the old disk.
 
-   [Service]
-   Type=simple
-   User=www-data
-   WorkingDirectory=/var/www/camera-demo/backend
-   ExecStart=/usr/bin/node server.js
-   Restart=on-failure
-   EnvironmentFile=/var/www/camera-demo/backend/.env
+## 4. Verify the deployment
 
-   [Install]
-   WantedBy=multi-user.target
-   ```
-   Set `DATABASE_PATH` to a file under your attached persistent disk and `PERSISTENT_STORAGE_ROOT` to that disk's mount path in the production `.env`.
-4. Start and enable service:
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now camera-backend
-   ```
-5. Configure Nginx reverse proxy with Certbot SSL:
-   ```nginx
-   server {
-       server_name api.yourdomain.com;
+Run the local build check and tests:
 
-       location / {
-           proxy_pass http://127.0.0.1:4000;
-           proxy_http_version 1.1;
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto $scheme;
-       }
-   }
-   ```
-   ```bash
-   sudo certbot --nginx -d api.yourdomain.com
-   ```
+```bash
+npm run build
+npm test
+```
 
----
+After deploying, check `https://camera-security-demo-1.onrender.com/api/health`. A working setup reports `database: "connected"`, `storageProvider: "neon"`, `persistentStorageConfigured: true`, and `realtimeConfigured: true`.
 
-## 5. Free-Tier Limitations & Storage Caveats
+The admin session dashboard uses the authenticated `/api/admin/sessions/realtime` stream. If Realtime is not available, the existing dashboard falls back to periodic session refresh. `NEON_REALTIME_SECRET` is never returned by the health endpoint or sent to the browser.
 
-### Ephemeral Filesystem vs. Persistent Disks
-- **Free Tier Sleep & Cold Starts**: On free tiers (e.g. Render Free Web Services), instances spin down after 15 minutes of inactivity. The first incoming request will trigger a cold start taking ~30–50 seconds. The Admin Dashboard handles this gracefully with a "Checking API..." indicator.
-- **Data Persistence**: A deployment without a persistent disk can lose the permanent-link record, sessions, and history on restart or redeploy. Do not use an ephemeral filesystem for this project when the reusable link must remain valid. Attach a persistent disk or use a managed database.
+## 5. Vercel frontend
 
-### Database Initialization & Migration
-- SQLite requires no manual setup. On startup, `services/db.js` creates missing tables/indexes and applies a non-destructive migration for older session databases. It does not delete or recreate an existing database.
-- Keep the attached persistent disk mounted across deploys. Do not manually delete `sessions.db`, `sessions.db-wal`, or `sessions.db-shm` while the service is running.
-
-### Managed Database Alternatives (for Serverless / Distributed Hosts)
-If deploying to environments where local disk storage is prohibited (e.g., AWS Lambda, Vercel Serverless, Cloudflare Workers):
-- **Turso (Hosted libSQL / SQLite)**: Fully compatible with SQLite queries over HTTP/WebSocket without requiring a local file.
-- **Supabase / Managed PostgreSQL**: Can replace the SQLite layer by swapping `services/db.js` queries to PostgreSQL `pg` pool.
-
----
-
-## 6. Post-Deployment Verification
-
-1. Test the health endpoint:
-   ```bash
-   curl https://camera-security-demo-1.onrender.com/api/health
-   ```
-   Expected response: `HTTP/2 200` with JSON body:
-   ```json
-   {
-     "status": "ok",
-  "database": "connected",
-  "persistentStorageConfigured": true
-   }
-   ```
-2. Test CORS rejection:
-   ```bash
-   curl -i -H "Origin: https://unauthorized-domain.com" https://camera-security-demo-1.onrender.com/api/health
-   ```
-   Expected response: `403 Forbidden: CORS blocked`.
-
-3. Test the Vercel CORS preflight:
-   ```bash
-   curl -i -X OPTIONS https://camera-security-demo-1.onrender.com/api/admin/permanent-link \
-     -H "Origin: https://news-kerala-vision-malayalam-fronte-five.vercel.app" \
-     -H "Access-Control-Request-Method: GET" \
-     -H "Access-Control-Request-Headers: x-admin-key"
-   ```
-   Expect a successful `2xx` response and an `Access-Control-Allow-Origin` header matching the Vercel origin.
-4. Redeploy once and verify `/api/health` reports both `"database":"connected"` and `"persistentStorageConfigured":true`; the admin console should still display the same permanent URL and session history.
-
-## 7. Deploying the Vercel Frontend
-
-Follow [the Vercel deployment guide](VERCEL_DEPLOYMENT.md). The frontend's production API default is `https://camera-security-demo-1.onrender.com`. If changing domains, update `frontend/config.js` and the backend `FRONTEND_ORIGIN` environment variable together, then redeploy both services.
+Set the Vercel project root to `frontend`. The static site calls the Render API and does not connect directly to Neon. Do not add `DATABASE_URL`, `NEON_REALTIME_SECRET`, Telegram credentials, or the admin key to Vercel. See [VERCEL_DEPLOYMENT.md](VERCEL_DEPLOYMENT.md).
