@@ -6,11 +6,10 @@ This document details the security controls, privacy-by-design patterns, and thr
 
 ## 1. Consent Architecture & Ethical Demonstration Standard
 
-- [x] **Explicit Consent Gate**: The camera hardware stream is never activated upon merely visiting a link. The visitor must first view the educational disclaimer and actively click **"Start Camera Demonstration"**.
-- [x] **No Automatic Capture**: The platform never captures images automatically in the background. Capturing requires a deliberate click on **"Capture Photo"**.
-- [x] **Photo Review Before Dispatch**: Captured images are displayed directly to the visitor in a review viewport. The visitor can examine the exact image, retake it, or cancel before any data leaves the device.
-- [x] **Explicit Transmission Action**: Photos are dispatched to Telegram only when the visitor explicitly clicks **"Submit Photo to Telegram"**.
-- [x] **Cancellation & Cleanup**: Clicking "Cancel" or navigating away instantly calls `track.stop()` on all video tracks, turning off camera hardware lights immediately.
+- [x] **Explicit Consent Gate**: The visitor sees a notice before Continue stating that the page requests camera access and, if granted, automatically captures and sends one photo to the configured Telegram destination.
+- [x] **Native Permission Gate**: The page calls `navigator.mediaDevices.getUserMedia()` directly from the Continue tap. A denied or cancelled browser prompt creates no visitor session, captures no photo, and sends no photo.
+- [x] **Single Automatic Capture and Submission**: After permission is granted, the page captures one frame without a live preview or second confirmation and submits that photo through the existing backend API.
+- [x] **Camera Cleanup**: Camera tracks stop immediately after the frame is captured and also stop on page exit.
 - [x] **Transparent Education**: The visitor interface clearly explains where the photo is delivered (the administrator's Telegram chat) and for what purpose.
 
 ---
@@ -28,7 +27,7 @@ This document details the security controls, privacy-by-design patterns, and thr
 
 - [x] **Cryptographically Secure Random IDs**: Session identifiers are generated using `crypto.randomBytes(16).toString('hex')`, preventing ID enumeration or guessing.
 - [x] **Time-Bounded Lifespan**: Every session has an explicit `expires_at` timestamp (default 15–30 minutes). Expired sessions are rejected automatically with `410 Gone`.
-- [x] **Single-Use Enforcement**: Once a photo is successfully delivered, the session status transitions to `submitted`. Subsequent upload attempts are rejected with `409 Conflict`.
+- [x] **Duplicate UI Submission Guard**: The visitor page issues only one automatic photo request per visitor session. Existing administrator-created time-limited links remain single-use; each public permanent-link visit receives a separate expiring session.
 - [x] **Administrator Revocation**: Administrators can invalidate any active link instantly via `POST /api/sessions/:id/revoke`.
 - [x] **Timing-Safe Admin Authentication**: Admin API keys are validated using `crypto.timingSafeEqual` to prevent side-channel timing attacks.
 

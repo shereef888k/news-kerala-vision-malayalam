@@ -24,6 +24,6 @@ The API allows the Vercel origin and responds to browser `OPTIONS` preflight req
 1. Open `https://news-kerala-vision-malayalam.onrender.com/api/health`. Confirm JSON reports `status: "ok"` and `database: "connected"`.
 2. Open `https://news-kerala-vision-malayalam-fronte-five.vercel.app/frontend/admin.html`, enter the Render `ADMIN_API_KEY` in **Backend & Credentials**, and click **Save Settings** and **Test Ping**.
 3. Create the permanent demo link once and copy it. The URL uses `/frontend/demo.html?link=...`; share this visitor URL, never the admin page or admin key.
-4. Open the visitor URL in separate browser sessions. Each one receives an independent session; the URL stays active until an admin disables or revokes it.
+4. Open the visitor URL in separate browser sessions. Each one receives an independent session. The notice explains that Continue requests camera access and granting native permission automatically captures and submits one photo; denying or cancelling permission sends nothing.
 
 If the Vercel project is later assigned a different custom domain, add that exact origin to Render's `FRONTEND_ORIGIN` and the allowlist in `backend/server.js`, then redeploy the backend.

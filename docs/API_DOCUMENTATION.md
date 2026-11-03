@@ -222,7 +222,7 @@ Immediately revokes an active demonstration link.
 ## 3. Photo Submission & Dispatch
 
 ### `POST /api/sessions/:id/photo`
-Receives an explicitly captured photo, validates session eligibility, delivers it to Telegram, and terminates the session.
+Receives the single photo captured after the visitor chose Continue and granted native browser camera permission, validates session eligibility, and delivers it to Telegram. The visitor page sends the request automatically after capture and redirects only after the backend confirms successful delivery.
 
 #### Headers
 - `Content-Type`: `multipart/form-data`
