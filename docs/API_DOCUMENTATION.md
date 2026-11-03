@@ -50,7 +50,8 @@ Host: api.example.com
   "uptimeSeconds": 3600,
   "timestamp": "2026-10-26T12:00:00.000Z",
   "version": "1.0.0",
-  "database": "connected"
+  "database": "connected",
+  "persistentStorageConfigured": true
 }
 ```
 
@@ -133,7 +134,7 @@ Generates a new time-bounded session reference.
 #### Error Responses
 - `401 Unauthorized`: Missing or incorrect `X-Admin-Key`.
 - `403 Forbidden`: Public session creation attempted without a valid public link.
-- `404 Not Found`: Permanent link token or legacy source session does not exist.
+- `404 Not Found`: Permanent link token or legacy source session does not exist. A missing permanent-link record means the backend database differs from or has lost the record; the public URL itself has no expiration time. Confirm the frontend uses the same API and that SQLite is on the attached persistent disk.
 - `409 Conflict`: Legacy single-use link was already used.
 - `410 Gone`: Legacy source session expired.
 - `400 Bad Request`: `durationMinutes` is less than 1 or exceeds 10080.

@@ -20,6 +20,15 @@ describe('Permanent reusable demo link', () => {
     assert.strictEqual(createRes.status, 401);
   });
 
+  test('unknown permanent-link tokens report a database mismatch rather than a link timeout', async () => {
+    const response = await request(app)
+      .post('/api/sessions/demo')
+      .send({ permanentLinkToken: 'a'.repeat(64) });
+    assert.strictEqual(response.status, 404);
+    assert.match(response.body.error, /URL itself does not expire/i);
+    assert.match(response.body.error, /persistent storage/i);
+  });
+
   test('one permanent token can be disabled, re-enabled, and revoked without expiry', async () => {
     const headers = { 'X-Admin-Key': process.env.ADMIN_API_KEY };
     const createRes = await request(app).post('/api/admin/permanent-link').set(headers);

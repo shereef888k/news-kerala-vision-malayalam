@@ -4,7 +4,7 @@
 [![Express](https://img.shields.io/badge/Express-4.21.2-000000?logo=express&logoColor=white)](https://expressjs.com/)
 [![SQLite](https://img.shields.io/badge/Database-SQLite%20Persistent-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Telegram Bot API](https://img.shields.io/badge/Telegram-Bot%20API%20sendPhoto-26A5E4?logo=telegram&logoColor=white)](https://core.telegram.org/bots/api#sendphoto)
-[![Tests](https://img.shields.io/badge/Tests-46%20Passed-brightgreen)](https://nodejs.org/api/test.html)
+[![Tests](https://img.shields.io/badge/Tests-50%20Passed-brightgreen)](https://nodejs.org/api/test.html)
 
 A professional, consent-based Phishing & Camera Security Awareness Demonstration platform designed to evaluate browser permission models and social engineering recognition across desktop and mobile devices.
 
@@ -21,7 +21,7 @@ The platform provides a modern, video-style landing page with video playback sim
 ## Live Deployments
 
 - **Frontend (Vercel)**: [https://news-kerala-vision-malayalam-fronte-five.vercel.app](https://news-kerala-vision-malayalam-fronte-five.vercel.app)
-- **Backend API (Render)**: [https://news-kerala-vision-malayalam.onrender.com](https://news-kerala-vision-malayalam.onrender.com/)
+- **Backend API (Render)**: [https://camera-security-demo-1.onrender.com](https://camera-security-demo-1.onrender.com/)
 
 ---
 
@@ -111,6 +111,7 @@ The repository is organized into two decoupled applications:
    TELEGRAM_CHAT_ID=987654321
    FRONTEND_ORIGIN=http://localhost:3000,http://localhost:5500
    DATABASE_PATH=data/sessions.db
+   PERSISTENT_STORAGE_ROOT=data
    DEMO_SESSION_DURATION_MINUTES=30
    ```
    *(See [docs/TELEGRAM_BOT_SETUP.md](docs/TELEGRAM_BOT_SETUP.md) for how to get your Bot Token and Chat ID in 2 minutes).*
@@ -189,7 +190,7 @@ cd backend
 npm test
 ```
 
-The current suite covers backend and browser-flow tests, including automatic single-photo submission, denied permission handling, permanent-link lifecycle, database reopen persistence, preflight handling, and five independent visitor sessions.
+The current 50-test suite covers backend and browser flow, automatic single-photo submission, denied permission handling, permanent-link lifecycle, API URL correction, storage-path validation, database reopen persistence, preflight handling, and five independent visitor sessions.
 
 ---
 

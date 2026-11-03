@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: news-kerala-vision-malayalam
+    name: camera-security-demo-1
     runtime: node
     rootDir: backend
     buildCommand: npm install
@@ -16,6 +16,8 @@ services:
         value: production
       - key: DATABASE_PATH
         value: /var/data/sessions.db
+      - key: PERSISTENT_STORAGE_ROOT
+        value: /var/data
       - key: DEMO_SESSION_DURATION_MINUTES
         value: 30
       - key: ADMIN_API_KEY

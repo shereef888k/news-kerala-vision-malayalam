@@ -78,7 +78,10 @@ router.post('/demo', (req, res, next) => {
 
       permanentLink = db.getPermanentDemoLinkByToken(permanentLinkToken);
       if (!permanentLink) {
-        return res.status(404).json({ success: false, error: 'Permanent demo link was not found.' });
+        return res.status(404).json({
+          success: false,
+          error: 'Permanent demo link record was not found. The URL itself does not expire; the backend may be using a different or reset database. Ask the administrator to check persistent storage.'
+        });
       }
       if (permanentLink.status !== 'enabled') {
         return res.status(403).json({ success: false, error: 'This permanent demo link is disabled or revoked.' });

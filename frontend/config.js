@@ -9,7 +9,8 @@
 
 const CONFIG = {
   // Deployed production backend on Render
-  DEFAULT_API_BASE_URL: 'https://news-kerala-vision-malayalam.onrender.com',
+  DEFAULT_API_BASE_URL: 'https://camera-security-demo-1.onrender.com',
+  MISCONFIGURED_BACKEND_URL: 'https://news-kerala-vision-malayalam.onrender.com',
 
   // Fallback / Auto-resolution:
   // If the admin specifies an API URL in the Dashboard settings or via query param (?api=...), use that;
@@ -21,6 +22,9 @@ const CONFIG = {
     if (queryApi) {
       try {
         const parsed = new URL(queryApi);
+        if (parsed.origin === this.MISCONFIGURED_BACKEND_URL) {
+          return this.DEFAULT_API_BASE_URL;
+        }
         return parsed.origin;
       } catch (e) {
         console.warn('[Config] Invalid query API URL:', queryApi);
@@ -30,6 +34,15 @@ const CONFIG = {
     // 2. Check localStorage if saved by Admin Dashboard
     const savedApi = localStorage.getItem('CAMERA_DEMO_API_URL');
     if (savedApi && savedApi.trim() !== '') {
+      try {
+        const parsed = new URL(savedApi.trim());
+        if (parsed.origin === this.MISCONFIGURED_BACKEND_URL) {
+          localStorage.setItem('CAMERA_DEMO_API_URL', this.DEFAULT_API_BASE_URL);
+          return this.DEFAULT_API_BASE_URL;
+        }
+      } catch (e) {
+        console.warn('[Config] Invalid saved API URL:', savedApi);
+      }
       return savedApi.trim().replace(/\/+$/, '');
     }
 

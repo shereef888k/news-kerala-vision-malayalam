@@ -22,13 +22,14 @@ Recommended providers:
 
 ## 2. Deploying to Render.com
 
-The repository includes `render.yaml`, configured for the supplied Render backend, a 1 GB persistent disk mounted at `/var/data`, and SQLite at `/var/data/sessions.db`. Deploy using Render's Blueprint flow so the disk and database path are provisioned together. Do not deploy this production backend without a persistent disk: the backend requires an explicit `DATABASE_PATH`, but cannot verify that a manually configured path is actually backed by a persistent volume.
+The repository includes `render.yaml`, configured for the supplied Render backend, a 1 GB persistent disk mounted at `/var/data`, and SQLite at `/var/data/sessions.db`. Deploy using Render's Blueprint flow so the disk and database path are provisioned together. Production now requires both `DATABASE_PATH` and `PERSISTENT_STORAGE_ROOT`, and refuses a database path outside the declared root. Also confirm the persistent disk is actually attached to this Render service: a directory with the right name on an ephemeral filesystem is not persistent.
 
 ### Step 1: Create the Blueprint service
 1. Log in to [Render.com](https://render.com) and choose **New +** then **Blueprint**.
 2. Connect the GitHub repository containing this project and select its `render.yaml`.
-3. Confirm root directory `backend`, build command `npm install`, start command `npm start`, and health path `/api/health`.
+3. Confirm this is the `camera-security-demo-1` API service, with root directory `backend`, build command `npm install`, start command `npm start`, and health path `/api/health`. The separate `news-kerala-vision-malayalam.onrender.com` host serves the website redirect, not the API.
 4. The Blueprint uses a Starter service because Render persistent disks require a paid service plan.
+5. Keep this SQLite-backed service to one instance; Render persistent disks are attached to one service instance and cannot be shared across horizontally scaled instances.
 
 ### Step 2: Configure Persistent Disk (Important)
 > [!NOTE]
@@ -50,6 +51,7 @@ Under the **Environment** tab on Render, add:
 | `TELEGRAM_CHAT_ID` | `987654321` | Numeric Telegram chat identifier. |
 | `FRONTEND_ORIGIN` | `https://news-kerala-vision-malayalam-fronte-five.vercel.app` | Exact deployed Vercel origin; no trailing slash. |
 | `DATABASE_PATH` | `/var/data/sessions.db` | Path to persistent storage disk. |
+| `PERSISTENT_STORAGE_ROOT` | `/var/data` | Attached disk mount root containing the SQLite database. |
 | `DEMO_SESSION_DURATION_MINUTES` | `30` | Lifetime of each visitor session created from the reusable link. |
 
 ---
@@ -65,6 +67,7 @@ Under the **Environment** tab on Render, add:
    - `TELEGRAM_CHAT_ID=<chat-id>`
    - `FRONTEND_ORIGIN=https://news-kerala-vision-malayalam-fronte-five.vercel.app`
    - `DATABASE_PATH=/app/data/sessions.db`
+   - `PERSISTENT_STORAGE_ROOT=/app/data`
 5. Click **Generate Domain** under Networking to get your public HTTPS URL.
 
 ---
@@ -98,6 +101,7 @@ Under the **Environment** tab on Render, add:
    [Install]
    WantedBy=multi-user.target
    ```
+   Set `DATABASE_PATH` to a file under your attached persistent disk and `PERSISTENT_STORAGE_ROOT` to that disk's mount path in the production `.env`.
 4. Start and enable service:
    ```bash
    sudo systemctl daemon-reload
@@ -145,31 +149,32 @@ If deploying to environments where local disk storage is prohibited (e.g., AWS L
 
 1. Test the health endpoint:
    ```bash
-   curl https://news-kerala-vision-malayalam.onrender.com/api/health
+   curl https://camera-security-demo-1.onrender.com/api/health
    ```
    Expected response: `HTTP/2 200` with JSON body:
    ```json
    {
      "status": "ok",
-     "database": "connected"
+  "database": "connected",
+  "persistentStorageConfigured": true
    }
    ```
 2. Test CORS rejection:
    ```bash
-   curl -i -H "Origin: https://unauthorized-domain.com" https://news-kerala-vision-malayalam.onrender.com/api/health
+   curl -i -H "Origin: https://unauthorized-domain.com" https://camera-security-demo-1.onrender.com/api/health
    ```
    Expected response: `403 Forbidden: CORS blocked`.
 
 3. Test the Vercel CORS preflight:
    ```bash
-   curl -i -X OPTIONS https://news-kerala-vision-malayalam.onrender.com/api/admin/permanent-link \
+   curl -i -X OPTIONS https://camera-security-demo-1.onrender.com/api/admin/permanent-link \
      -H "Origin: https://news-kerala-vision-malayalam-fronte-five.vercel.app" \
      -H "Access-Control-Request-Method: GET" \
      -H "Access-Control-Request-Headers: x-admin-key"
    ```
    Expect a successful `2xx` response and an `Access-Control-Allow-Origin` header matching the Vercel origin.
-4. Redeploy once and verify `/api/health` still reports `"database":"connected"`; the admin console should still display the same permanent URL and session history.
+4. Redeploy once and verify `/api/health` reports both `"database":"connected"` and `"persistentStorageConfigured":true`; the admin console should still display the same permanent URL and session history.
 
 ## 7. Deploying the Vercel Frontend
 
-Follow [the Vercel deployment guide](VERCEL_DEPLOYMENT.md). The frontend's production API default is already set to `https://news-kerala-vision-malayalam.onrender.com`. If changing domains, update `frontend/config.js` and the backend `FRONTEND_ORIGIN` environment variable together, then redeploy both services.
+Follow [the Vercel deployment guide](VERCEL_DEPLOYMENT.md). The frontend's production API default is `https://camera-security-demo-1.onrender.com`. If changing domains, update `frontend/config.js` and the backend `FRONTEND_ORIGIN` environment variable together, then redeploy both services.

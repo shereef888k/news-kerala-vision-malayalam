@@ -167,8 +167,16 @@
 
       if (response.ok) {
         const data = await response.json();
-        statusDot.className = 'indicator-dot';
-        statusText.textContent = `Online (v${data.version || '1.0'})`;
+        if (data.persistentStorageConfigured === false) {
+          statusDot.className = 'indicator-dot offline';
+          statusText.textContent = 'Online, but persistent storage is not configured';
+        } else if (data.persistentStorageConfigured !== true) {
+          statusDot.className = 'indicator-dot offline';
+          statusText.textContent = 'Online, but backend storage status is unknown';
+        } else {
+          statusDot.className = 'indicator-dot';
+          statusText.textContent = `Online (v${data.version || '1.0'})`;
+        }
       } else {
         statusDot.className = 'indicator-dot offline';
         statusText.textContent = `Error ${response.status}`;

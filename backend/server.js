@@ -30,7 +30,6 @@ app.use(helmet({
 // 3. Strict CORS Configuration
 const defaultOrigins = [
   'https://shereef888k.github.io',
-  'https://news-kerala-vision-malayalam.onrender.com',
   'https://news-kerala-vision-malayalam-fronte-five.vercel.app'
 ];
 
@@ -119,7 +118,7 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 // 5. Health Check Endpoint
 app.get('/api/health', (req, res) => {
   try {
-    db.healthCheck();
+    const databaseStatus = db.healthCheck();
     return res.json({
       status: 'ok',
       service: 'Camera Security Demonstration API',
@@ -127,6 +126,7 @@ app.get('/api/health', (req, res) => {
       timestamp: new Date().toISOString(),
       version: '1.0.0',
       database: 'connected',
+      persistentStorageConfigured: databaseStatus.persistentStorageConfigured,
       telegramConfigured: telegramService.isConfigured()
     });
   } catch (error) {
@@ -135,7 +135,8 @@ app.get('/api/health', (req, res) => {
       status: 'error',
       service: 'Camera Security Demonstration API',
       timestamp: new Date().toISOString(),
-      database: 'unavailable'
+      database: 'unavailable',
+      persistentStorageConfigured: false
     });
   }
 });

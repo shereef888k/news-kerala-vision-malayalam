@@ -56,14 +56,68 @@ test('SQLite session and permanent-link records survive a connection restart and
 test('production startup refuses an unspecified database path instead of silently using ephemeral storage', () => {
   const previousEnvironment = process.env.NODE_ENV;
   const previousDatabasePath = process.env.DATABASE_PATH;
+  const previousStorageRoot = process.env.PERSISTENT_STORAGE_ROOT;
   db.closeDatabase();
   process.env.NODE_ENV = 'production';
   delete process.env.DATABASE_PATH;
+  process.env.PERSISTENT_STORAGE_ROOT = path.join(os.tmpdir(), 'camera-demo-persistent');
   try {
     assert.throws(() => db.initDatabase(), /DATABASE_PATH must point to persistent storage/);
   } finally {
     process.env.NODE_ENV = previousEnvironment;
     if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
     else process.env.DATABASE_PATH = previousDatabasePath;
+    if (previousStorageRoot === undefined) delete process.env.PERSISTENT_STORAGE_ROOT;
+    else process.env.PERSISTENT_STORAGE_ROOT = previousStorageRoot;
+  }
+});
+
+test('production refuses a SQLite path outside the declared persistent mount', () => {
+  const previousEnvironment = process.env.NODE_ENV;
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const previousStorageRoot = process.env.PERSISTENT_STORAGE_ROOT;
+  db.closeDatabase();
+  process.env.NODE_ENV = 'production';
+  process.env.DATABASE_PATH = path.join(os.tmpdir(), 'camera-demo-ephemeral', 'sessions.db');
+  process.env.PERSISTENT_STORAGE_ROOT = path.join(os.tmpdir(), 'camera-demo-persistent');
+  try {
+    assert.throws(() => db.initDatabase(), /DATABASE_PATH must be inside PERSISTENT_STORAGE_ROOT/);
+  } finally {
+    process.env.NODE_ENV = previousEnvironment;
+    if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previousDatabasePath;
+    if (previousStorageRoot === undefined) delete process.env.PERSISTENT_STORAGE_ROOT;
+    else process.env.PERSISTENT_STORAGE_ROOT = previousStorageRoot;
+  }
+});
+
+test('health reports a configured database path under the declared persistent root', () => {
+  const previousEnvironment = process.env.NODE_ENV;
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const previousStorageRoot = process.env.PERSISTENT_STORAGE_ROOT;
+  const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'camera-demo-storage-health-'));
+  const databaseRoot = path.join(tempDirectory, 'persistent');
+  fs.mkdirSync(databaseRoot, { recursive: true });
+  db.closeDatabase();
+  process.env.NODE_ENV = 'production';
+  process.env.DATABASE_PATH = path.join(databaseRoot, 'sessions.db');
+  process.env.PERSISTENT_STORAGE_ROOT = databaseRoot;
+  try {
+    db.initDatabase();
+    assert.deepStrictEqual(db.healthCheck(), {
+      connected: true,
+      persistentStorageConfigured: true
+    });
+  } finally {
+    db.closeDatabase();
+    process.env.NODE_ENV = previousEnvironment;
+    if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previousDatabasePath;
+    if (previousStorageRoot === undefined) delete process.env.PERSISTENT_STORAGE_ROOT;
+    else process.env.PERSISTENT_STORAGE_ROOT = previousStorageRoot;
+    const resolvedTempRoot = path.resolve(os.tmpdir()) + path.sep;
+    const resolvedDirectory = path.resolve(tempDirectory);
+    assert.ok(resolvedDirectory.startsWith(resolvedTempRoot), 'Temporary health-check directory must be under OS temp.');
+    fs.rmSync(resolvedDirectory, { recursive: true, force: true });
   }
 });

@@ -4,6 +4,15 @@ const crypto = require('crypto');
 
 let dbInstance = null;
 let isNodeSqlite = false;
+let activeDatabasePath = null;
+
+function isPathInsideDirectory(filePath, directoryPath) {
+  if (!filePath || !directoryPath || filePath === ':memory:') return false;
+  const resolvedFile = path.resolve(filePath);
+  const resolvedDirectory = path.resolve(directoryPath);
+  const relative = path.relative(resolvedDirectory, resolvedFile);
+  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
 
 /**
  * Initializes and returns the persistent SQLite database instance.
@@ -21,6 +30,18 @@ function initDatabase(customPath) {
     throw new Error('DATABASE_PATH must point to persistent storage in production.');
   }
   const dbPath = configuredPath || path.join(__dirname, '../data/sessions.db');
+  if (process.env.NODE_ENV === 'production') {
+    const persistentRoot = process.env.PERSISTENT_STORAGE_ROOT;
+    if (!persistentRoot) {
+      throw new Error('PERSISTENT_STORAGE_ROOT must identify the attached persistent disk in production.');
+    }
+    if (!path.isAbsolute(dbPath) || !path.isAbsolute(persistentRoot)) {
+      throw new Error('DATABASE_PATH and PERSISTENT_STORAGE_ROOT must be absolute paths in production.');
+    }
+    if (!isPathInsideDirectory(dbPath, persistentRoot)) {
+      throw new Error('DATABASE_PATH must be inside PERSISTENT_STORAGE_ROOT in production.');
+    }
+  }
 
   if (dbPath !== ':memory:') {
     const dir = path.dirname(dbPath);
@@ -44,6 +65,7 @@ function initDatabase(customPath) {
   }
 
   dbInstance = new DatabaseSync(dbPath);
+  activeDatabasePath = dbPath;
   dbInstance.exec('PRAGMA busy_timeout = 5000;');
 
   // Enable WAL mode for high concurrency
@@ -256,7 +278,11 @@ function healthCheck() {
   const db = initDatabase();
   const result = db.prepare('SELECT 1 AS ok').get();
   if (!result || Number(result.ok) !== 1) throw new Error('SQLite health check failed.');
-  return true;
+  return {
+    connected: true,
+    persistentStorageConfigured: process.env.NODE_ENV !== 'production' ||
+      isPathInsideDirectory(activeDatabasePath, process.env.PERSISTENT_STORAGE_ROOT)
+  };
 }
 
 /**
@@ -421,6 +447,7 @@ function closeDatabase() {
       // Ignore
     }
     dbInstance = null;
+    activeDatabasePath = null;
   }
 }
 
@@ -436,6 +463,7 @@ module.exports = {
   setPermanentDemoLinkStatus,
   getVisitorSessionForSource,
   healthCheck,
+  isPathInsideDirectory,
   markSessionOpened,
   markSessionActive,
   markSessionSubmitted,

@@ -214,17 +214,23 @@
 
   <script src="./config.js"></script>
   <script>
-    const DEFAULT_BACKEND_URL = "https://news-kerala-vision-malayalam.onrender.com";
+    const DEFAULT_BACKEND_URL = "https://camera-security-demo-1.onrender.com";
+    const MISCONFIGURED_BACKEND_URL = "https://news-kerala-vision-malayalam.onrender.com";
+
+    function normalizeBackendUrl(value) {
+      const parsed = new URL(value);
+      return parsed.origin === MISCONFIGURED_BACKEND_URL ? DEFAULT_BACKEND_URL : parsed.origin;
+    }
 
     function resolveBackendUrl() {
       try {
         const queryApi = new URLSearchParams(window.location.search).get("api");
-        if (queryApi) return queryApi.replace(/\/+$/, '');
+        if (queryApi) return normalizeBackendUrl(queryApi);
 
         if (window.APP_CONFIG && typeof window.APP_CONFIG.getApiBaseUrl === "function") {
           const configuredUrl = window.APP_CONFIG.getApiBaseUrl();
           if (typeof configuredUrl === "string" && configuredUrl.trim()) {
-            return configuredUrl.trim().replace(/\/+$/, '');
+            return normalizeBackendUrl(configuredUrl.trim());
           }
         }
       } catch (error) {
