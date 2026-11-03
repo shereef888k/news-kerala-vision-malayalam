@@ -37,7 +37,7 @@
     <div class="notice notice-info">
       <div>
         <strong>Consent-Based Demonstration Protocol</strong>
-        <p>This platform issues ephemeral demonstration sessions to evaluate mobile and desktop browser camera permissions. Photo transmission occurs <em>only</em> when a visitor knowingly clicks &quot;Submit Photo&quot;. All sessions expire automatically or upon admin revocation.</p>
+        <p>Each visitor receives an independent, time-limited session. A photo is captured only after the visitor chooses Capture Photo and is transmitted <em>only</em> after Submit Photo. The permanent entry link stays active until an administrator disables or revokes it.</p>
       </div>
     </div>
 
@@ -78,6 +78,33 @@
         </form>
       </section>
 
+      <!-- Permanent reusable link -->
+      <section class="card" aria-labelledby="permanent-link-heading">
+        <div class="card-header">
+          <div>
+            <h2 id="permanent-link-heading" class="card-title">🔗 Permanent Reusable Demo Link</h2>
+            <div class="card-description">One shareable URL creates an independent, time-limited visitor session each time.</div>
+          </div>
+        </div>
+
+        <p style="font-size: 0.85rem; line-height: 1.5; color: var(--text-muted); margin: 0 0 0.75rem;">
+          The link itself does not expire. Visitors must allow camera access, capture a photo, then choose Submit Photo before anything is sent.
+        </p>
+        <div id="permanent-link-status" class="notice notice-info" role="status" style="margin-bottom: 0.75rem;">
+          Enter the administrator key to check the permanent link.
+        </div>
+        <div class="form-group">
+          <label for="permanent-link-url" class="form-label">Permanent Demo URL</label>
+          <input type="url" id="permanent-link-url" class="form-input" readonly placeholder="Create or load the permanent link">
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+          <button type="button" id="btn-create-permanent-link" class="btn btn-primary">Create Permanent Link</button>
+          <button type="button" id="btn-copy-permanent-link" class="btn btn-secondary" disabled>Copy Permanent Link</button>
+          <button type="button" id="btn-toggle-permanent-link" class="btn btn-secondary" hidden>Disable Link</button>
+          <button type="button" id="btn-revoke-permanent-link" class="btn btn-danger" hidden>Revoke Access</button>
+        </div>
+      </section>
+
       <!-- Admin Credentials & API Settings Card -->
       <section class="card" aria-labelledby="settings-heading">
         <div class="card-header">
@@ -95,7 +122,7 @@
 
           <div class="form-group">
             <label for="backend-url-override" class="form-label">Backend Base URL</label>
-            <input type="url" id="backend-url-override" class="form-input" placeholder="https://camera-security-demo-1.onrender.com">
+            <input type="url" id="backend-url-override" class="form-input" placeholder="https://news-kerala-vision-malayalam.onrender.com">
           </div>
 
           <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
@@ -153,7 +180,7 @@
         <button type="button" class="modal-close" id="modal-close-btn" aria-label="Close modal">&times;</button>
       </div>
       <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-        Send this unique demonstration link to the testing device. The visitor will see the video landing page and be asked for explicit consent before any camera preview begins.
+        Send this single-use demonstration link to the testing device. The visitor must allow camera access, choose Capture Photo, and then choose Submit Photo before the photo is transmitted.
       </p>
 
       <div class="copy-box">

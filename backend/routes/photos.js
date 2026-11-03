@@ -121,6 +121,22 @@ router.post('/sessions/:id/photo', uploadMiddleware, async (req, res, next) => {
           error: 'The demonstration link for this visitor session has expired.'
         });
       }
+      if (sourceSession.submissionsCount > 0) {
+        return res.status(409).json({
+          success: false,
+          error: 'The single-use demonstration link has already been used.'
+        });
+      }
+    }
+
+    if (session.permanentLinkId) {
+      const permanentLink = db.getPermanentDemoLinkById(session.permanentLinkId);
+      if (!permanentLink || permanentLink.status !== 'enabled') {
+        return res.status(403).json({
+          success: false,
+          error: 'The permanent demo link has been disabled or revoked.'
+        });
+      }
     }
 
     // 5. Check abuse limit (maximum authorized photos per session)

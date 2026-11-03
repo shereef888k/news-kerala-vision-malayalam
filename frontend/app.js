@@ -20,6 +20,12 @@
   const btnTestConnection = document.getElementById('btn-test-connection');
   const btnRefreshSessions = document.getElementById('btn-refresh-sessions');
   const sessionsTableBody = document.getElementById('sessions-tbody');
+  const permanentLinkStatus = document.getElementById('permanent-link-status');
+  const permanentLinkUrlInput = document.getElementById('permanent-link-url');
+  const btnCreatePermanentLink = document.getElementById('btn-create-permanent-link');
+  const btnCopyPermanentLink = document.getElementById('btn-copy-permanent-link');
+  const btnTogglePermanentLink = document.getElementById('btn-toggle-permanent-link');
+  const btnRevokePermanentLink = document.getElementById('btn-revoke-permanent-link');
 
   // Modal Elements
   const linkModal = document.getElementById('link-modal');
@@ -30,6 +36,7 @@
 
   // State
   let pollIntervalId = null;
+  let currentPermanentLink = null;
 
   // Initialize
   function init() {
@@ -37,6 +44,7 @@
     bindEvents();
     checkBackendHealth();
     fetchSessions();
+    fetchPermanentDemoLink();
 
     // Auto-refresh sessions every 10 seconds to detect status changes
     pollIntervalId = setInterval(fetchSessions, 10000);
@@ -85,6 +93,7 @@
       showAlert('Settings updated successfully.', 'success');
       checkBackendHealth();
       fetchSessions();
+      fetchPermanentDemoLink();
     });
 
     btnTestConnection.addEventListener('click', checkBackendHealth);
@@ -95,7 +104,15 @@
     // Refresh Sessions Button
     btnRefreshSessions.addEventListener('click', () => {
       fetchSessions();
+      fetchPermanentDemoLink();
     });
+
+    btnCreatePermanentLink.addEventListener('click', createPermanentDemoLink);
+    btnCopyPermanentLink.addEventListener('click', () => {
+      if (permanentLinkUrlInput.value) copyToClipboard(permanentLinkUrlInput.value, btnCopyPermanentLink);
+    });
+    btnTogglePermanentLink.addEventListener('click', togglePermanentDemoLink);
+    btnRevokePermanentLink.addEventListener('click', revokePermanentDemoLink);
 
     // Modal controls
     modalCloseBtn.addEventListener('click', () => {
@@ -160,6 +177,146 @@
       statusDot.className = 'indicator-dot offline';
       statusText.textContent = 'Offline / CORS blocked';
       console.warn('[Dashboard] Health check failed:', err.message);
+    }
+  }
+
+  function renderPermanentDemoLink(link) {
+    currentPermanentLink = link || null;
+    const hasLink = Boolean(link && link.token && link.id);
+    const revoked = hasLink && link.status === 'revoked';
+
+    permanentLinkUrlInput.value = hasLink ? window.APP_CONFIG.getPermanentDemoPageUrl(link.token) : '';
+    btnCreatePermanentLink.hidden = hasLink && !revoked;
+    btnCreatePermanentLink.textContent = revoked ? 'Create Replacement Link' : 'Create Permanent Link';
+    btnCopyPermanentLink.disabled = !hasLink || revoked;
+    btnTogglePermanentLink.hidden = !hasLink || revoked;
+    btnRevokePermanentLink.hidden = !hasLink || revoked;
+
+    if (!hasLink) {
+      permanentLinkStatus.className = 'notice notice-info';
+      permanentLinkStatus.textContent = 'No permanent link exists yet. Create one once, then share it until you disable or revoke access.';
+      return;
+    }
+
+    if (revoked) {
+      permanentLinkStatus.className = 'notice notice-danger';
+      permanentLinkStatus.textContent = 'Access revoked. Create a replacement link to share again.';
+      return;
+    }
+
+    const enabled = link.status === 'enabled';
+    permanentLinkStatus.className = enabled ? 'notice notice-success' : 'notice notice-warning';
+    permanentLinkStatus.textContent = enabled
+      ? `Enabled — this URL does not expire. Visitor sessions expire after their configured session lifetime. Created ${formatDate(link.createdAt)}.`
+      : `Disabled — visitors cannot start new sessions. Re-enable this same URL at any time. Created ${formatDate(link.createdAt)}.`;
+    btnTogglePermanentLink.textContent = enabled ? 'Disable Link' : 'Enable Link';
+  }
+
+  async function fetchPermanentDemoLink() {
+    const apiUrl = window.APP_CONFIG.getApiBaseUrl();
+    const adminKey = localStorage.getItem('CAMERA_DEMO_ADMIN_KEY') || '';
+    if (!adminKey) {
+      currentPermanentLink = null;
+      permanentLinkUrlInput.value = '';
+      permanentLinkStatus.className = 'notice notice-info';
+      permanentLinkStatus.textContent = 'Enter the administrator key to view and manage the permanent link.';
+      btnCreatePermanentLink.disabled = true;
+      btnCopyPermanentLink.disabled = true;
+      btnTogglePermanentLink.hidden = true;
+      btnRevokePermanentLink.hidden = true;
+      return;
+    }
+
+    btnCreatePermanentLink.disabled = false;
+    try {
+      const response = await fetch(`${apiUrl}/api/admin/permanent-link`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json', 'X-Admin-Key': adminKey }
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data || data.success !== true) {
+        throw new Error((data && data.error) || `HTTP ${response.status}: Could not load the permanent link.`);
+      }
+      renderPermanentDemoLink(data.link);
+    } catch (err) {
+      permanentLinkStatus.className = 'notice notice-danger';
+      permanentLinkStatus.textContent = `Could not load the permanent link: ${err.message}`;
+    }
+  }
+
+  async function createPermanentDemoLink() {
+    const apiUrl = window.APP_CONFIG.getApiBaseUrl();
+    const adminKey = localStorage.getItem('CAMERA_DEMO_ADMIN_KEY') || '';
+    if (!adminKey) {
+      showAlert('Enter the administrator key before creating a permanent link.', 'warning');
+      adminApiKeyInput.focus();
+      return;
+    }
+
+    btnCreatePermanentLink.disabled = true;
+    try {
+      const response = await fetch(`${apiUrl}/api/admin/permanent-link`, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'X-Admin-Key': adminKey }
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data || data.success !== true || !data.link) {
+        throw new Error((data && data.error) || `HTTP ${response.status}: Could not create the permanent link.`);
+      }
+      renderPermanentDemoLink(data.link);
+      showAlert('Permanent demo link is ready to copy.', 'success');
+    } catch (err) {
+      showAlert(`Permanent link creation failed: ${err.message}`, 'danger');
+    } finally {
+      btnCreatePermanentLink.disabled = false;
+    }
+  }
+
+  async function togglePermanentDemoLink() {
+    if (!currentPermanentLink) return;
+    const apiUrl = window.APP_CONFIG.getApiBaseUrl();
+    const adminKey = localStorage.getItem('CAMERA_DEMO_ADMIN_KEY') || '';
+    btnTogglePermanentLink.disabled = true;
+    try {
+      const enabled = currentPermanentLink.status !== 'enabled';
+      const response = await fetch(`${apiUrl}/api/admin/permanent-link/${currentPermanentLink.id}/status`, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Admin-Key': adminKey },
+        body: JSON.stringify({ enabled })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data || data.success !== true) {
+        throw new Error((data && data.error) || `HTTP ${response.status}: Could not change link status.`);
+      }
+      renderPermanentDemoLink(data.link);
+      showAlert(enabled ? 'Permanent demo link enabled.' : 'Permanent demo link disabled.', 'success');
+    } catch (err) {
+      showAlert(`Link status update failed: ${err.message}`, 'danger');
+    } finally {
+      btnTogglePermanentLink.disabled = false;
+    }
+  }
+
+  async function revokePermanentDemoLink() {
+    if (!currentPermanentLink || !confirm('Revoke this permanent link? Visitors using it will no longer be able to continue.')) return;
+    const apiUrl = window.APP_CONFIG.getApiBaseUrl();
+    const adminKey = localStorage.getItem('CAMERA_DEMO_ADMIN_KEY') || '';
+    btnRevokePermanentLink.disabled = true;
+    try {
+      const response = await fetch(`${apiUrl}/api/admin/permanent-link/${currentPermanentLink.id}/revoke`, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'X-Admin-Key': adminKey }
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data || data.success !== true) {
+        throw new Error((data && data.error) || `HTTP ${response.status}: Could not revoke link.`);
+      }
+      renderPermanentDemoLink(data.link);
+      showAlert('Permanent demo link access revoked.', 'info');
+      fetchSessions();
+    } catch (err) {
+      showAlert(`Link revocation failed: ${err.message}`, 'danger');
+      btnRevokePermanentLink.disabled = false;
     }
   }
 

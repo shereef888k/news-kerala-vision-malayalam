@@ -19,10 +19,15 @@ The Camera Security Demonstration backend exposes a RESTful JSON API for session
 | `GET` | `/api/health` | Public | System status, uptime, and database connectivity. |
 | `POST` | `/api/sessions` | **Admin Required** | Issues a new cryptographic demonstration session. |
 | `GET` | `/api/sessions` | **Admin Required** | Lists all generated demonstration sessions. |
+| `POST` | `/api/sessions/demo` | Public link token | Mints an independent, expiring visitor session from the enabled permanent link (or a legacy single-use link). |
 | `GET` | `/api/sessions/:id` | Public | Fetches limited public information for a session. |
 | `POST` | `/api/sessions/:id/opened` | Public | Records that a visitor opened the demonstration link. |
 | `POST` | `/api/sessions/:id/photo` | Public | Submits a captured photo and dispatches it to Telegram. |
 | `POST` | `/api/sessions/:id/revoke` | **Admin Required** | Immediately invalidates an active session link. |
+| `GET` | `/api/admin/permanent-link` | **Admin Required** | Reads the permanent link and its enabled/disabled/revoked state. |
+| `POST` | `/api/admin/permanent-link` | **Admin Required** | Creates the permanent link, or returns the existing link. |
+| `POST` | `/api/admin/permanent-link/:id/status` | **Admin Required** | Enables or disables the permanent link. |
+| `POST` | `/api/admin/permanent-link/:id/revoke` | **Admin Required** | Revokes the permanent link; revocation is permanent. |
 
 ---
 
@@ -52,6 +57,47 @@ Host: api.example.com
 ---
 
 ## 2. Session Management
+
+### `POST /api/sessions/demo`
+Creates a new, independent visitor session. The permanent URL token is a public bearer value and must never contain or replace the administrator key. The endpoint accepts requests only for an enabled permanent link or a valid, unused legacy session link.
+
+#### Request Body
+```json
+{
+  "permanentLinkToken": "<64-character-random-token>"
+}
+```
+
+#### Response `201 Created`
+```json
+{
+  "success": true,
+  "message": "Public demonstration session created.",
+  "session": {
+    "id": "<unique-session-id>",
+    "label": "Permanent Link Visitor",
+    "status": "created",
+    "createdAt": "2026-11-03T12:00:00.000Z",
+    "expiresAt": "2026-11-03T12:30:00.000Z",
+    "submittedAt": null
+  }
+}
+```
+
+Visitor session lifetime is configured by `DEMO_SESSION_DURATION_MINUTES` (default 30 minutes). The permanent link has no time-based expiration; an administrator can disable or revoke it. Missing or invalid link tokens are rejected, and administrators can continue to issue optional time-limited legacy links through `POST /api/sessions`.
+
+### Permanent link administration
+
+These endpoints require the `X-Admin-Key` header. They expose the public link token only to an authenticated administrator.
+
+- `GET /api/admin/permanent-link` returns the latest link or `null`.
+- `POST /api/admin/permanent-link` creates a link if none exists, otherwise returns the existing non-revoked link.
+- `POST /api/admin/permanent-link/:id/status` accepts `{ "enabled": true }` or `{ "enabled": false }`. A disabled link can be re-enabled; a revoked link cannot.
+- `POST /api/admin/permanent-link/:id/revoke` permanently revokes the current link. A replacement requires a new link and URL.
+
+Disabling or revoking a permanent link also prevents its existing visitor sessions from opening or submitting photos.
+
+---
 
 ### `POST /api/sessions`
 Generates a new time-bounded session reference.
@@ -86,6 +132,10 @@ Generates a new time-bounded session reference.
 
 #### Error Responses
 - `401 Unauthorized`: Missing or incorrect `X-Admin-Key`.
+- `403 Forbidden`: Public session creation attempted without a valid public link.
+- `404 Not Found`: Permanent link token or legacy source session does not exist.
+- `409 Conflict`: Legacy single-use link was already used.
+- `410 Gone`: Legacy source session expired.
 - `400 Bad Request`: `durationMinutes` is less than 1 or exceeds 10080.
 
 ---

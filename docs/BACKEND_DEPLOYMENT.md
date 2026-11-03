@@ -22,25 +22,21 @@ Recommended providers:
 
 ## 2. Deploying to Render.com
 
-### Step 1: Create a Web Service
-1. Log in to [Render.com](https://render.com) and click **New +** &rarr; **Web Service**.
-2. Connect your GitHub repository.
-3. Configure the service settings:
-   - **Root Directory**: `backend`
-   - **Environment**: `Node`
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-   - **Instance Type**: Free or Starter
+The repository includes `render.yaml`, configured for the supplied Render backend, a 1 GB persistent disk mounted at `/var/data`, and SQLite at `/var/data/sessions.db`. Deploy using Render's Blueprint flow so the disk and database path are provisioned together. Do not deploy this production backend without a persistent disk: the backend requires an explicit `DATABASE_PATH`, but cannot verify that a manually configured path is actually backed by a persistent volume.
+
+### Step 1: Create the Blueprint service
+1. Log in to [Render.com](https://render.com) and choose **New +** then **Blueprint**.
+2. Connect the GitHub repository containing this project and select its `render.yaml`.
+3. Confirm root directory `backend`, build command `npm install`, start command `npm start`, and health path `/api/health`.
+4. The Blueprint uses a Starter service because Render persistent disks require a paid service plan.
 
 ### Step 2: Configure Persistent Disk (Important)
 > [!NOTE]
-> On free-tier containers without a disk, the filesystem is ephemeral and resets during cold starts or redeploys. While demonstration sessions are typically short-lived (15–60 minutes), persistent disks ensure session state survives restarts.
+> Without a persistent disk, the SQLite database and permanent-link record can disappear on restart or redeploy. The reusable link therefore requires a disk-backed database.
 
-1. Under the **Disks** tab in your service settings, click **Add Disk**.
-2. Name: `sessions-storage`
-3. Mount Path: `/var/data`
-4. Size: `1 GB` (more than sufficient for session tracking)
-5. Set environment variable: `DATABASE_PATH=/var/data/sessions.db`
+1. Under the service's **Disks** tab, confirm the Blueprint-created disk exists.
+2. Mount Path: `/var/data`; Size: `1 GB`.
+3. Confirm `DATABASE_PATH=/var/data/sessions.db` exactly. Do not point SQLite to the service's ephemeral application directory.
 
 ### Step 3: Set Environment Variables
 Under the **Environment** tab on Render, add:
@@ -52,8 +48,9 @@ Under the **Environment** tab on Render, add:
 | `ADMIN_API_KEY` | `8c4d9e2a7b1f6305a...` | Cryptographically random admin key. |
 | `TELEGRAM_BOT_TOKEN` | `7123456789:AAFl...` | Official Telegram Bot Token from BotFather. |
 | `TELEGRAM_CHAT_ID` | `987654321` | Numeric Telegram chat identifier. |
-| `FRONTEND_ORIGIN` | `https://<user>.github.io` | Exact deployed GitHub Pages origin. |
+| `FRONTEND_ORIGIN` | `https://news-kerala-vision-malayalam-fronte-five.vercel.app` | Exact deployed Vercel origin; no trailing slash. |
 | `DATABASE_PATH` | `/var/data/sessions.db` | Path to persistent storage disk. |
+| `DEMO_SESSION_DURATION_MINUTES` | `30` | Lifetime of each visitor session created from the reusable link. |
 
 ---
 
@@ -66,7 +63,7 @@ Under the **Environment** tab on Render, add:
    - `ADMIN_API_KEY=<secure-random-key>`
    - `TELEGRAM_BOT_TOKEN=<token>`
    - `TELEGRAM_CHAT_ID=<chat-id>`
-   - `FRONTEND_ORIGIN=https://<user>.github.io`
+   - `FRONTEND_ORIGIN=https://news-kerala-vision-malayalam-fronte-five.vercel.app`
    - `DATABASE_PATH=/app/data/sessions.db`
 5. Click **Generate Domain** under Networking to get your public HTTPS URL.
 
@@ -131,10 +128,11 @@ Under the **Environment** tab on Render, add:
 
 ### Ephemeral Filesystem vs. Persistent Disks
 - **Free Tier Sleep & Cold Starts**: On free tiers (e.g. Render Free Web Services), instances spin down after 15 minutes of inactivity. The first incoming request will trigger a cold start taking ~30–50 seconds. The Admin Dashboard handles this gracefully with a "Checking API..." indicator.
-- **Data Persistence**: If deploying to a free container without an attached persistent disk, the local SQLite database resets upon container sleep or redeploy. For security demonstrations where sessions are short-lived (15–30 minutes), this is usually acceptable. For long-running or audit persistence, an attached disk or managed database is required.
+- **Data Persistence**: A deployment without a persistent disk can lose the permanent-link record, sessions, and history on restart or redeploy. Do not use an ephemeral filesystem for this project when the reusable link must remain valid. Attach a persistent disk or use a managed database.
 
 ### Database Initialization & Migration
-- SQLite requires zero manual SQL setup or migration commands. The backend automatically initializes all required tables and indexes (`CREATE TABLE IF NOT EXISTS sessions...`) upon initial startup in `services/db.js`.
+- SQLite requires no manual setup. On startup, `services/db.js` creates missing tables/indexes and applies a non-destructive migration for older session databases. It does not delete or recreate an existing database.
+- Keep the attached persistent disk mounted across deploys. Do not manually delete `sessions.db`, `sessions.db-wal`, or `sessions.db-shm` while the service is running.
 
 ### Managed Database Alternatives (for Serverless / Distributed Hosts)
 If deploying to environments where local disk storage is prohibited (e.g., AWS Lambda, Vercel Serverless, Cloudflare Workers):
@@ -147,7 +145,7 @@ If deploying to environments where local disk storage is prohibited (e.g., AWS L
 
 1. Test the health endpoint:
    ```bash
-   curl -I https://api.yourdomain.com/api/health
+   curl https://news-kerala-vision-malayalam.onrender.com/api/health
    ```
    Expected response: `HTTP/2 200` with JSON body:
    ```json
@@ -158,6 +156,20 @@ If deploying to environments where local disk storage is prohibited (e.g., AWS L
    ```
 2. Test CORS rejection:
    ```bash
-   curl -H "Origin: https://unauthorized-domain.com" https://api.yourdomain.com/api/health
+   curl -i -H "Origin: https://unauthorized-domain.com" https://news-kerala-vision-malayalam.onrender.com/api/health
    ```
    Expected response: `403 Forbidden: CORS blocked`.
+
+3. Test the Vercel CORS preflight:
+   ```bash
+   curl -i -X OPTIONS https://news-kerala-vision-malayalam.onrender.com/api/admin/permanent-link \
+     -H "Origin: https://news-kerala-vision-malayalam-fronte-five.vercel.app" \
+     -H "Access-Control-Request-Method: GET" \
+     -H "Access-Control-Request-Headers: x-admin-key"
+   ```
+   Expect a successful `2xx` response and an `Access-Control-Allow-Origin` header matching the Vercel origin.
+4. Redeploy once and verify `/api/health` still reports `"database":"connected"`; the admin console should still display the same permanent URL and session history.
+
+## 7. Deploying the Vercel Frontend
+
+Follow [the Vercel deployment guide](VERCEL_DEPLOYMENT.md). The frontend's production API default is already set to `https://news-kerala-vision-malayalam.onrender.com`. If changing domains, update `frontend/config.js` and the backend `FRONTEND_ORIGIN` environment variable together, then redeploy both services.

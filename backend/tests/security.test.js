@@ -51,6 +51,20 @@ describe('Security & Infrastructure Tests', () => {
     assert.strictEqual(res.headers['access-control-allow-origin'], 'https://trusted.github.io');
   });
 
+  test('CORS — Allows Vercel admin authentication preflight', async () => {
+    const origin = 'https://news-kerala-vision-malayalam-fronte-five.vercel.app';
+    const res = await request(app)
+      .options('/api/admin/permanent-link')
+      .set('Origin', origin)
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type,x-admin-key');
+
+    assert.strictEqual(res.status, 204);
+    assert.strictEqual(res.headers['access-control-allow-origin'], origin);
+    assert.match(res.headers['access-control-allow-methods'], /POST/);
+    assert.match(res.headers['access-control-allow-headers'], /x-admin-key/i);
+  });
+
   test('CORS — Blocks unapproved third-party origin in production mode', async () => {
     const prevEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';

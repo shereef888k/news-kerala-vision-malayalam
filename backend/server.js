@@ -9,6 +9,7 @@ const db = require('./services/db');
 const telegramService = require('./services/telegram');
 const sessionsRouter = require('./routes/sessions');
 const photosRouter = require('./routes/photos');
+const permanentLinksRouter = require('./routes/permanentLinks');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -29,7 +30,8 @@ app.use(helmet({
 // 3. Strict CORS Configuration
 const defaultOrigins = [
   'https://shereef888k.github.io',
-  'https://news-kerala-vision-malayalam.onrender.com'
+  'https://news-kerala-vision-malayalam.onrender.com',
+  'https://news-kerala-vision-malayalam-fronte-five.vercel.app'
 ];
 
 const envOrigins = (process.env.FRONTEND_ORIGIN || '')
@@ -116,20 +118,32 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // 5. Health Check Endpoint
 app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'Camera Security Demonstration API',
-    uptimeSeconds: Math.floor(process.uptime()),
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    database: 'connected',
-    telegramConfigured: telegramService.isConfigured()
-  });
+  try {
+    db.healthCheck();
+    return res.json({
+      status: 'ok',
+      service: 'Camera Security Demonstration API',
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      database: 'connected',
+      telegramConfigured: telegramService.isConfigured()
+    });
+  } catch (error) {
+    console.error('[Health] SQLite check failed:', error.message);
+    return res.status(503).json({
+      status: 'error',
+      service: 'Camera Security Demonstration API',
+      timestamp: new Date().toISOString(),
+      database: 'unavailable'
+    });
+  }
 });
 
 // 6. Mount API Routes
 app.use('/api/sessions', sessionsRouter);
 app.use('/api', photosRouter);
+app.use('/api', permanentLinksRouter);
 
 // 7. 404 & Centralized Error Handlers
 app.use(notFoundHandler);

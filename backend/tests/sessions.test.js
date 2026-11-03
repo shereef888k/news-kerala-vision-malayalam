@@ -59,33 +59,28 @@ describe('Sessions API Endpoints', () => {
     assert.strictEqual(diffMinutes, 45);
   });
 
-  test('POST /api/sessions/demo — Successfully creates public demo session without admin key (201)', async () => {
+  test('POST /api/sessions/demo — Rejects creation without a valid demo link (403)', async () => {
     const res = await request(app)
       .post('/api/sessions/demo')
       .send({ label: 'Public Visitor' });
 
-    assert.strictEqual(res.status, 201);
-    assert.strictEqual(res.body.success, true);
-    assert.ok(res.body.session.id);
-    assert.strictEqual(res.body.session.status, 'created');
-    assert.match(res.body.session.label, /Public Visitor/i);
+    assert.strictEqual(res.status, 403);
+    assert.strictEqual(res.body.success, false);
   });
 
   test('POST /api/sessions/demo — Creates independent visitor sessions concurrently from one reusable link', async () => {
-    const sourceRes = await request(app)
-      .post('/api/sessions')
-      .set('X-Admin-Key', process.env.ADMIN_API_KEY)
-      .send({ durationMinutes: 30, label: 'Shared Demo Link' });
-    const sourceSessionId = sourceRes.body.session.id;
+    const linkRes = await request(app)
+      .post('/api/admin/permanent-link')
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY);
 
     const visitorResponses = await Promise.all(Array.from({ length: 5 }, () => request(app)
       .post('/api/sessions/demo')
-      .send({ sourceSessionId })));
+      .send({ permanentLinkToken: linkRes.body.link.token })));
 
     assert.ok(visitorResponses.every(res => res.status === 201 && res.body.success));
     const visitorIds = visitorResponses.map(res => res.body.session.id);
     assert.strictEqual(new Set(visitorIds).size, 5);
-    assert.ok(visitorResponses.every(res => res.body.session.label.includes('Shared Demo Link')));
+    assert.ok(visitorResponses.every(res => res.body.session.label === 'Permanent Link Visitor'));
 
     const visitorSessions = await Promise.all(visitorIds.map(id => request(app).get(`/api/sessions/${id}`)));
     assert.ok(visitorSessions.every((res, index) => res.status === 200 && res.body.id === visitorIds[index]));
@@ -99,14 +94,9 @@ describe('Sessions API Endpoints', () => {
     assert.strictEqual(unaffectedRes.status, 200);
     assert.strictEqual(unaffectedRes.body.status, 'created');
 
-    const revokeSourceRes = await request(app)
-      .post(`/api/sessions/${sourceSessionId}/revoke`)
-      .set('X-Admin-Key', process.env.ADMIN_API_KEY);
-    assert.strictEqual(revokeSourceRes.status, 200);
-
     const linkedVisitorRes = await request(app).get(`/api/sessions/${visitorIds[1]}`);
     assert.strictEqual(linkedVisitorRes.status, 200);
-    assert.strictEqual(linkedVisitorRes.body.status, 'revoked');
+    assert.strictEqual(linkedVisitorRes.body.status, 'created');
   });
 
   test('GET /api/sessions — Lists sessions for authenticated administrator (200)', async () => {
@@ -193,9 +183,12 @@ describe('Sessions API Endpoints', () => {
   });
 
   test('POST /api/sessions/:id/events — Successfully records non-sensitive demonstration events (200)', async () => {
+    const linkRes = await request(app)
+      .post('/api/admin/permanent-link')
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY);
     const createRes = await request(app)
       .post('/api/sessions/demo')
-      .send({ label: 'Phishing Awareness Visitor' });
+      .send({ permanentLinkToken: linkRes.body.link.token });
 
     const sessionId = createRes.body.session.id;
 
@@ -232,7 +225,12 @@ describe('Sessions API Endpoints', () => {
   });
 
   test('POST /api/sessions/:id/events — Rejects invalid event types (400)', async () => {
-    const createRes = await request(app).post('/api/sessions/demo');
+    const linkRes = await request(app)
+      .post('/api/admin/permanent-link')
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY);
+    const createRes = await request(app)
+      .post('/api/sessions/demo')
+      .send({ permanentLinkToken: linkRes.body.link.token });
     const sessionId = createRes.body.session.id;
 
     const res = await request(app)

@@ -55,56 +55,67 @@ router.post('/', requireAdminAuth, (req, res, next) => {
 
 /**
  * POST /api/sessions/demo
- * Create an ephemeral public demonstration session (no admin key required).
- * Allows visitors on the video landing page to test the consent demonstration.
+ * Create one visitor session from a permanent bearer link or a legacy
+ * admin-issued single-use session link.
  */
 router.post('/demo', (req, res, next) => {
   try {
-    const { label, sourceSessionId } = req.body || {};
+    const { sourceSessionId, permanentLinkToken } = req.body || {};
     let sourceSession = null;
+    let permanentLink = null;
 
-    // Admin-issued links remain reusable entry links. Each visitor receives a
-    // separate short-lived session, while the source link still controls its
-    // expiry and revocation state.
-    if (sourceSessionId !== undefined && sourceSessionId !== null && sourceSessionId !== '') {
+    if (sourceSessionId && permanentLinkToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'Provide either a permanent demo link token or a single-use session ID, not both.'
+      });
+    }
+
+    if (permanentLinkToken) {
+      if (typeof permanentLinkToken !== 'string' || !/^[a-f0-9]{64}$/i.test(permanentLinkToken)) {
+        return res.status(400).json({ success: false, error: 'Invalid permanent demo link token.' });
+      }
+
+      permanentLink = db.getPermanentDemoLinkByToken(permanentLinkToken);
+      if (!permanentLink) {
+        return res.status(404).json({ success: false, error: 'Permanent demo link was not found.' });
+      }
+      if (permanentLink.status !== 'enabled') {
+        return res.status(403).json({ success: false, error: 'This permanent demo link is disabled or revoked.' });
+      }
+    } else if (sourceSessionId) {
       if (!isValidSessionId(sourceSessionId)) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid source session ID format.'
-        });
+        return res.status(400).json({ success: false, error: 'Invalid source session ID format.' });
       }
 
       sourceSession = db.getSessionById(sourceSessionId);
       if (!sourceSession) {
-        return res.status(404).json({
-          success: false,
-          error: 'Source demonstration session was not found.'
-        });
+        return res.status(404).json({ success: false, error: 'Source demonstration session was not found.' });
       }
-
       if (sourceSession.status === 'revoked') {
-        return res.status(403).json({
-          success: false,
-          error: 'This demonstration link has been revoked by the administrator.'
-        });
+        return res.status(403).json({ success: false, error: 'This demonstration link has been revoked by the administrator.' });
       }
-
       if (new Date() > new Date(sourceSession.expiresAt)) {
-        return res.status(410).json({
-          success: false,
-          error: 'This demonstration link has expired. Please request a new link.'
-        });
+        return res.status(410).json({ success: false, error: 'This demonstration link has expired. Please request a new link.' });
       }
+      if (sourceSession.submissionsCount > 0 || db.getVisitorSessionForSource(sourceSessionId)) {
+        return res.status(409).json({ success: false, error: 'This single-use demonstration link has already been used.' });
+      }
+    } else {
+      return res.status(403).json({
+        success: false,
+        error: 'A valid permanent demo link or single-use session link is required.'
+      });
     }
 
     const sanitizedLabel = sourceSession
       ? `Visitor: ${(sourceSession.label || `Demo ${sourceSession.id.substring(0, 8)}`).substring(0, 40)}`
-      : label && typeof label === 'string'
-        ? `Web Demo: ${label.trim().substring(0, 40)}`
-        : 'Public Web Visitor Demo';
+      : 'Permanent Link Visitor';
 
-    // 15-minute expiration for ephemeral public demonstration
-    const parsedDuration = 15;
+    const configuredDuration = parseInt(process.env.DEMO_SESSION_DURATION_MINUTES, 10);
+    const parsedDuration = Number.isInteger(configuredDuration) && configuredDuration >= 1 && configuredDuration <= 1440
+      ? configuredDuration
+      : 30;
     const sessionId = crypto.randomBytes(16).toString('hex');
     const now = new Date();
     const expiresAt = new Date(now.getTime() + parsedDuration * 60 * 1000).toISOString();
@@ -114,13 +125,21 @@ router.post('/demo', (req, res, next) => {
       label: sanitizedLabel,
       expiresAt,
       createdAt: now.toISOString(),
-      sourceSessionId: sourceSession ? sourceSession.id : null
+      sourceSessionId: sourceSession ? sourceSession.id : null,
+      permanentLinkId: permanentLink ? permanentLink.id : null
     });
 
     return res.status(201).json({
       success: true,
       message: 'Public demonstration session created.',
-      session
+      session: {
+        id: session.id,
+        label: session.label,
+        status: session.status,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+        submittedAt: session.submittedAt
+      }
     });
   } catch (err) {
     next(err);
@@ -187,7 +206,14 @@ router.get('/:id', (req, res, next) => {
         effectiveStatus = 'revoked';
       } else if (now > new Date(sourceSession.expiresAt)) {
         effectiveStatus = 'expired';
+      } else if (sourceSession.submissionsCount > 0) {
+        effectiveStatus = 'submitted';
       }
+    }
+
+    if (session.permanentLinkId && effectiveStatus !== 'revoked') {
+      const permanentLink = db.getPermanentDemoLinkById(session.permanentLinkId);
+      if (!permanentLink || permanentLink.status !== 'enabled') effectiveStatus = 'revoked';
     }
 
     // Return limited public information (never expose internals)
@@ -239,6 +265,28 @@ router.post('/:id/events', async (req, res, next) => {
         success: false,
         error: 'Session not found.'
       });
+    }
+
+    if (session.status === 'revoked') {
+      return res.status(403).json({ success: false, error: 'Session has been revoked.' });
+    }
+    if (new Date() > new Date(session.expiresAt)) {
+      return res.status(410).json({ success: false, error: 'Session has expired.' });
+    }
+    if (session.sourceSessionId) {
+      const sourceSession = db.getSessionById(session.sourceSessionId);
+      if (!sourceSession || sourceSession.status === 'revoked') {
+        return res.status(403).json({ success: false, error: 'The demonstration link for this visitor session is unavailable.' });
+      }
+      if (new Date() > new Date(sourceSession.expiresAt)) {
+        return res.status(410).json({ success: false, error: 'The demonstration link for this visitor session has expired.' });
+      }
+    }
+    if (session.permanentLinkId) {
+      const permanentLink = db.getPermanentDemoLinkById(session.permanentLinkId);
+      if (!permanentLink || permanentLink.status !== 'enabled') {
+        return res.status(403).json({ success: false, error: 'The permanent demo link has been disabled or revoked.' });
+      }
     }
 
     // Record event in DB
@@ -348,6 +396,22 @@ router.post('/:id/opened', (req, res, next) => {
         return res.status(410).json({
           success: false,
           error: 'The demonstration link for this visitor session has expired.'
+        });
+      }
+      if (sourceSession.submissionsCount > 0) {
+        return res.status(409).json({
+          success: false,
+          error: 'The single-use demonstration link has already been used.'
+        });
+      }
+    }
+
+    if (session.permanentLinkId) {
+      const permanentLink = db.getPermanentDemoLinkById(session.permanentLinkId);
+      if (!permanentLink || permanentLink.status !== 'enabled') {
+        return res.status(403).json({
+          success: false,
+          error: 'The permanent demo link has been disabled or revoked.'
         });
       }
     }

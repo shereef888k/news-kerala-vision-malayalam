@@ -1,12 +1,12 @@
 services:
   - type: web
-    name: camera-security-demo-backend
+    name: news-kerala-vision-malayalam
     runtime: node
     rootDir: backend
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
-    plan: starter # Starter plan or free plan (persistent disks require paid plan on Render; on free tier disk can be omitted)
+    plan: starter # Persistent SQLite storage requires a Render plan with disk support.
     disk:
       name: sessions-data
       mountPath: /var/data
@@ -16,6 +16,8 @@ services:
         value: production
       - key: DATABASE_PATH
         value: /var/data/sessions.db
+      - key: DEMO_SESSION_DURATION_MINUTES
+        value: 30
       - key: ADMIN_API_KEY
         generateValue: true
       - key: TELEGRAM_BOT_TOKEN
@@ -23,4 +25,4 @@ services:
       - key: TELEGRAM_CHAT_ID
         sync: false
       - key: FRONTEND_ORIGIN
-        sync: false
+        value: https://news-kerala-vision-malayalam-fronte-five.vercel.app

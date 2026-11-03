@@ -9,7 +9,7 @@
 
 const CONFIG = {
   // Deployed production backend on Render
-  DEFAULT_API_BASE_URL: 'https://camera-security-demo-1.onrender.com',
+  DEFAULT_API_BASE_URL: 'https://news-kerala-vision-malayalam.onrender.com',
 
   // Fallback / Auto-resolution:
   // If the admin specifies an API URL in the Dashboard settings or via query param (?api=...), use that;
@@ -51,6 +51,20 @@ const CONFIG = {
     demoUrl.searchParams.set('session', sessionId);
 
     // If a custom API URL is in use, also pass it along so the visitor client targets the matching backend
+    const activeApi = this.getApiBaseUrl();
+    if (activeApi !== this.DEFAULT_API_BASE_URL) {
+      demoUrl.searchParams.set('api', activeApi);
+    }
+
+    return demoUrl.toString();
+  },
+
+  getPermanentDemoPageUrl(linkToken) {
+    const currentPath = window.location.pathname;
+    const basePath = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
+    const demoUrl = new URL(`${basePath}demo.html`, window.location.origin);
+    demoUrl.searchParams.set('link', linkToken);
+
     const activeApi = this.getApiBaseUrl();
     if (activeApi !== this.DEFAULT_API_BASE_URL) {
       demoUrl.searchParams.set('api', activeApi);
